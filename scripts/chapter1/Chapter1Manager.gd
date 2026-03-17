@@ -74,8 +74,8 @@ func _trigger_intro() -> void:
 	# 开场白（延迟0.5秒，让玩家看清地图）
 	await get_tree().create_timer(0.8).timeout
 	EventBus.dialogue_triggered.emit("旁白", [
-		"中世纪西幻大陆，魔物横行，村庄告急……",
-		"勇者，你的旅程从这片村庄开始。",
+		"某个中世纪的幻想大陆，魔物横行，村庄告急……",
+		"怀抱理想的年轻人啊，你的旅程从这片村庄开始。",
 		"（提示：WASD移动，鼠标左键/J攻击，F键交互，ESC关闭商店）"
 	])
 	

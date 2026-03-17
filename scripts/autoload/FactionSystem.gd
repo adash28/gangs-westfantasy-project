@@ -101,9 +101,15 @@ func get_relation(entity_a: Node, entity_b: Node) -> Relation:
 		if _individual_overrides.has(id_a) and _individual_overrides[id_a].has(id_b):
 			return _individual_overrides[id_a][id_b]
 	
-	# 使用默认阵营矩阵
-	var faction_a: int = entity_a.get("faction", Faction.NEUTRAL)
-	var faction_b: int = entity_b.get("faction", Faction.NEUTRAL)
+	# 使用默认阵营矩阵（修复处）
+	var faction_a: int = entity_a.get("faction")
+	if faction_a == null:
+		faction_a = Faction.NEUTRAL
+	
+	var faction_b: int = entity_b.get("faction")
+	if faction_b == null:
+		faction_b = Faction.NEUTRAL
+	
 	return get_faction_relation(faction_a, faction_b)
 
 

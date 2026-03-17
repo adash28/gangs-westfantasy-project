@@ -1,0 +1,40 @@
+# Godot 4+ ignores
+.godot/
+*.godot.uid
+
+# Godot import ignores
+*.import
+*.import.*
+
+# Godot export ignores
+export.cfg
+export_presets.cfg
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.sublime-project
+*.sublime-workspace
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Binary files
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Generated files
+*.gen.*
+*.generated.*
