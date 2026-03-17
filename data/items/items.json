@@ -1,0 +1,90 @@
+{
+  "weapons": {
+    "axe": {
+      "id": "axe",
+      "display_name": "斧头",
+      "extra_damage": 5,
+      "durability": 100,
+      "durability_per_hit": 20,
+      "weapon_type": "melee",
+      "special_target": null,
+      "special_multiplier": 1.0,
+      "description": "普通的斧头，耐久度有限"
+    },
+    "cleaver": {
+      "id": "cleaver",
+      "display_name": "砍刀",
+      "extra_damage": 10,
+      "durability": 100,
+      "durability_per_hit": 8,
+      "weapon_type": "melee",
+      "special_target": null,
+      "special_multiplier": 1.0,
+      "description": "锋利的砍刀"
+    },
+    "holy_staff": {
+      "id": "holy_staff",
+      "display_name": "圣杖",
+      "extra_damage": 3,
+      "durability": -1,
+      "durability_per_hit": 0,
+      "weapon_type": "magic",
+      "special_target": "UNDEAD",
+      "special_multiplier": 2.0,
+      "description": "神圣之杖，不损耐久度，对不死者伤害翻倍"
+    },
+    "dagger": {
+      "id": "dagger",
+      "display_name": "匕首",
+      "extra_damage": 3,
+      "durability": -1,
+      "durability_per_hit": 0,
+      "weapon_type": "melee",
+      "special_target": "UNDEAD",
+      "special_multiplier": 2.0,
+      "description": "锋利的匕首"
+    },
+    "sword": {
+      "id": "sword",
+      "display_name": "剑",
+      "extra_damage": 15,
+      "durability": 100,
+      "durability_per_hit": 3,
+      "weapon_type": "melee",
+      "special_target": null,
+      "special_multiplier": 1.0,
+      "description": "普通的剑，攻击力强"
+    },
+    "fist": {
+      "id": "fist",
+      "display_name": "拳头",
+      "extra_damage": 0,
+      "durability": -1,
+      "durability_per_hit": 0,
+      "weapon_type": "melee",
+      "special_target": null,
+      "special_multiplier": 1.0,
+      "description": "赤手空拳"
+    }
+  },
+  "shop_items": {
+    "health_potion": {
+      "id": "health_potion",
+      "display_name": "治疗药水",
+      "type": "consumable",
+      "effect": "heal",
+      "effect_value": 30,
+      "base_price": 15,
+      "description": "恢复30点生命值"
+    },
+    "mana_potion": {
+      "id": "mana_potion",
+      "display_name": "魔力药水",
+      "type": "consumable",
+      "effect": "restore_mp",
+      "effect_value": 30,
+      "base_price": 20,
+      "description": "恢复30点魔力"
+    }
+  }
+}

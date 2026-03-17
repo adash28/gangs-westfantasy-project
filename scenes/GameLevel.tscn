@@ -1,0 +1,201 @@
+; GameLevel.tscn - 游戏主关卡场景
+; 包含：TileMapLayer（地图）、玩家、NPC容器、HUD、对话框、商店UI、第一章管理器
+
+[gd_scene load_steps=10 format=3 uid="uid://game_level"]
+
+[ext_resource type="Script" path="res://scripts/systems/MapGenerator.gd" id="1_mgen"]
+[ext_resource type="Script" path="res://scripts/ui/HUD.gd" id="2_hud"]
+[ext_resource type="Script" path="res://scripts/ui/DialogueBox.gd" id="3_dlg"]
+[ext_resource type="Script" path="res://scripts/ui/ShopUI.gd" id="4_shop"]
+[ext_resource type="Script" path="res://scripts/chapter1/Chapter1Manager.gd" id="5_ch1"]
+[ext_resource type="Script" path="res://scripts/GameLevel.gd" id="6_level"]
+[ext_resource type="Script" path="res://scripts/systems/PlaceholderSpriteGenerator.gd" id="7_psg"]
+
+[node name="GameLevel" type="Node2D"]
+script = ExtResource("6_level")
+
+[node name="World" type="Node2D" parent="."]
+
+[node name="TileMapLayer" type="TileMapLayer" parent="World"]
+
+[node name="NPCContainer" type="Node2D" parent="World"]
+
+[connection signal="child_entered_tree" from="World/NPCContainer" to="." method="_on_npc_container_child_entered_tree"]
+
+[node name="PlayerContainer" type="Node2D" parent="World"]
+
+[node name="MapGenerator" type="Node" parent="."]
+script = ExtResource("1_mgen")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+zoom = Vector2(2, 2)
+position_smoothing_enabled = true
+position_smoothing_speed = 8.0
+
+[node name="Chapter1Manager" type="Node" parent="."]
+script = ExtResource("5_ch1")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+script = ExtResource("2_hud")
+
+[node name="MarginContainer" type="MarginContainer" parent="HUD"]
+anchors_preset = 0
+offset_right = 280.0
+offset_bottom = 160.0
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="HUD/MarginContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="HPRow" type="HBoxContainer" parent="HUD/MarginContainer/VBox"]
+[node name="HPLabel" type="Label" parent="HUD/MarginContainer/VBox/HPRow"]
+text = "HP: 100/100"
+custom_minimum_size = Vector2(110, 0)
+[node name="HPBar" type="ProgressBar" parent="HUD/MarginContainer/VBox/HPRow"]
+custom_minimum_size = Vector2(120, 18)
+value = 100.0
+show_percentage = false
+
+[node name="MPRow" type="HBoxContainer" parent="HUD/MarginContainer/VBox"]
+[node name="MPLabel" type="Label" parent="HUD/MarginContainer/VBox/MPRow"]
+text = "MP: 0/0"
+custom_minimum_size = Vector2(110, 0)
+[node name="MPBar" type="ProgressBar" parent="HUD/MarginContainer/VBox/MPRow"]
+custom_minimum_size = Vector2(120, 18)
+value = 0.0
+show_percentage = false
+
+[node name="GoldRow" type="HBoxContainer" parent="HUD/MarginContainer/VBox"]
+[node name="GoldLabel" type="Label" parent="HUD/MarginContainer/VBox/GoldRow"]
+text = "金币: 50"
+
+[node name="WeaponRow" type="HBoxContainer" parent="HUD/MarginContainer/VBox"]
+[node name="WeaponLabel" type="Label" parent="HUD/MarginContainer/VBox/WeaponRow"]
+text = "斧头 (100/100)"
+custom_minimum_size = Vector2(110, 0)
+[node name="WeaponDurBar" type="ProgressBar" parent="HUD/MarginContainer/VBox/WeaponRow"]
+custom_minimum_size = Vector2(120, 18)
+value = 100.0
+show_percentage = false
+
+[node name="QuestPanel" type="Panel" parent="HUD"]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -220.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 50.0
+
+[node name="QuestLabel" type="Label" parent="HUD/QuestPanel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 4.0
+offset_right = -8.0
+offset_bottom = -4.0
+text = "任务：击败魔物 0 / 5"
+horizontal_alignment = 1
+
+[node name="InteractHint" type="Label" parent="HUD"]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -100.0
+offset_top = -60.0
+offset_right = 100.0
+offset_bottom = -36.0
+text = "按 [F] 交互"
+horizontal_alignment = 1
+visible = false
+
+[node name="DialogueBox" type="CanvasLayer" parent="."]
+script = ExtResource("3_dlg")
+layer = 5
+
+[node name="Panel" type="Panel" parent="DialogueBox"]
+anchors_preset = 12
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -160.0
+offset_bottom = -10.0
+offset_left = 20.0
+offset_right = -20.0
+
+[node name="VBox" type="VBoxContainer" parent="DialogueBox/Panel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 8.0
+offset_right = -12.0
+offset_bottom = -8.0
+
+[node name="SpeakerLabel" type="Label" parent="DialogueBox/Panel/VBox"]
+text = "旁白"
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(1, 0.9, 0.3, 1)
+
+[node name="TextLabel" type="RichTextLabel" parent="DialogueBox/Panel/VBox"]
+custom_minimum_size = Vector2(0, 80)
+size_flags_vertical = 3
+bbcode_enabled = true
+text = ""
+
+[node name="ContinueHint" type="Label" parent="DialogueBox/Panel/VBox"]
+text = "..."
+horizontal_alignment = 2
+theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
+
+[node name="ShopUI" type="CanvasLayer" parent="."]
+script = ExtResource("4_shop")
+layer = 6
+
+[node name="Panel" type="Panel" parent="ShopUI"]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -250.0
+offset_top = -200.0
+offset_right = 250.0
+offset_bottom = 200.0
+
+[node name="VBox" type="VBoxContainer" parent="ShopUI/Panel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 15.0
+offset_top = 15.0
+offset_right = -15.0
+offset_bottom = -15.0
+
+[node name="TitleLabel" type="Label" parent="ShopUI/Panel/VBox"]
+text = "商店"
+theme_override_font_sizes/font_size = 22
+horizontal_alignment = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="ShopUI/Panel/VBox"]
+size_flags_vertical = 3
+custom_minimum_size = Vector2(0, 200)
+
+[node name="ItemList" type="VBoxContainer" parent="ShopUI/Panel/VBox/ScrollContainer"]
+size_flags_horizontal = 3
+
+[node name="BottomRow" type="HBoxContainer" parent="ShopUI/Panel/VBox"]
+[node name="GoldLabel" type="Label" parent="ShopUI/Panel/VBox/BottomRow"]
+text = "持有金币: 50"
+size_flags_horizontal = 3
+[node name="CloseBtn" type="Button" parent="ShopUI/Panel/VBox/BottomRow"]
+text = "关闭 (ESC)"

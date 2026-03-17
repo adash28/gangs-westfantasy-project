@@ -1,0 +1,62 @@
+; Main.tscn - 游戏主入口场景
+; 负责：读取配置后跳转到角色选择界面
+
+[gd_scene load_steps=2 format=3 uid="uid://main_scene"]
+
+[ext_resource type="Script" path="res://scripts/ui/CharacterSelectUI.gd" id="1_main"]
+
+[node name="Main" type="Node"]
+
+[node name="CharacterSelectUI" type="CanvasLayer" parent="."]
+script = ExtResource("1_main")
+
+[node name="Panel" type="Panel" parent="CharacterSelectUI"]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -250.0
+offset_right = 300.0
+offset_bottom = 250.0
+
+[node name="VBox" type="VBoxContainer" parent="CharacterSelectUI/Panel"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = -20.0
+
+[node name="TitleLabel" type="Label" parent="CharacterSelectUI/Panel/VBox"]
+text = "选择你的角色"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 28
+
+[node name="CharList" type="HBoxContainer" parent="CharacterSelectUI/Panel/VBox"]
+alignment = 1
+custom_minimum_size = Vector2(0, 100)
+
+[node name="PreviewBox" type="VBoxContainer" parent="CharacterSelectUI/Panel/VBox"]
+custom_minimum_size = Vector2(0, 120)
+
+[node name="NameLabel" type="Label" parent="CharacterSelectUI/Panel/VBox/PreviewBox"]
+text = "点击角色查看详情"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 20
+
+[node name="DescLabel" type="Label" parent="CharacterSelectUI/Panel/VBox/PreviewBox"]
+text = ""
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="StatsLabel" type="Label" parent="CharacterSelectUI/Panel/VBox/PreviewBox"]
+text = ""
+horizontal_alignment = 1
+
+[node name="ConfirmBtn" type="Button" parent="CharacterSelectUI/Panel/VBox"]
+text = "开始冒险！"
+custom_minimum_size = Vector2(0, 50)
+theme_override_font_sizes/font_size = 18

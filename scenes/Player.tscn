@@ -1,0 +1,71 @@
+; Player.tscn - 玩家场景
+; 包含：CollisionShape2D、AnimatedSprite2D、StateMachine、各检测区域
+
+[gd_scene load_steps=8 format=3 uid="uid://player_scene"]
+
+[ext_resource type="Script" path="res://scripts/entities/Player.gd" id="1_player"]
+[ext_resource type="Script" path="res://scripts/systems/StateMachine.gd" id="2_sm"]
+[ext_resource type="Script" path="res://scripts/states/IdleState.gd" id="3_idle"]
+[ext_resource type="Script" path="res://scripts/states/MoveState.gd" id="4_move"]
+[ext_resource type="Script" path="res://scripts/states/AttackState.gd" id="5_atk"]
+[ext_resource type="Script" path="res://scripts/states/DeadState.gd" id="6_dead"]
+
+[sub_resource type="RectangleShape2D" id="body_shape"]
+size = Vector2(20, 20)
+
+[sub_resource type="CircleShape2D" id="interact_shape"]
+radius = 40.0
+
+[sub_resource type="CircleShape2D" id="attack_shape"]
+radius = 44.0
+
+[node name="Player" type="CharacterBody2D"]
+script = ExtResource("1_player")
+collision_layer = 1
+collision_mask = 6
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("body_shape")
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
+scale = Vector2(1.5, 1.5)
+
+[node name="StateMachine" type="Node" parent="."]
+script = ExtResource("2_sm")
+
+[node name="IdleState" type="Node" parent="StateMachine"]
+script = ExtResource("3_idle")
+
+[node name="MoveState" type="Node" parent="StateMachine"]
+script = ExtResource("4_move")
+
+[node name="AttackState" type="Node" parent="StateMachine"]
+script = ExtResource("5_atk")
+
+[node name="DeadState" type="Node" parent="StateMachine"]
+script = ExtResource("6_dead")
+
+[node name="InteractArea" type="Area2D" parent="."]
+collision_layer = 0
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="InteractArea"]
+shape = SubResource("interact_shape")
+
+[node name="AttackArea" type="Area2D" parent="."]
+collision_layer = 0
+collision_mask = 4
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="AttackArea"]
+shape = SubResource("attack_shape")
+
+[node name="NameLabel" type="Label" parent="."]
+offset_left = -30.0
+offset_top = -28.0
+offset_right = 30.0
+offset_bottom = -12.0
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "玩家"
+theme_override_font_sizes/font_size = 9
+theme_override_colors/font_color = Color(0.2, 0.8, 1, 1)

@@ -1,0 +1,73 @@
+; NPC.tscn - NPC 通用场景（怪物和友好NPC共用，靠 init_npc 区分）
+
+[gd_scene load_steps=8 format=3 uid="uid://npc_scene"]
+
+[ext_resource type="Script" path="res://scripts/entities/NPC.gd" id="1_npc"]
+[ext_resource type="Script" path="res://scripts/systems/StateMachine.gd" id="2_sm"]
+[ext_resource type="Script" path="res://scripts/states/IdleState.gd" id="3_idle"]
+[ext_resource type="Script" path="res://scripts/states/MoveState.gd" id="4_move"]
+[ext_resource type="Script" path="res://scripts/states/AttackState.gd" id="5_atk"]
+[ext_resource type="Script" path="res://scripts/states/DeadState.gd" id="6_dead"]
+
+[sub_resource type="RectangleShape2D" id="body_shape"]
+size = Vector2(18, 18)
+
+[sub_resource type="CircleShape2D" id="detect_shape"]
+radius = 160.0
+
+[node name="NPC" type="CharacterBody2D"]
+script = ExtResource("1_npc")
+collision_layer = 6
+collision_mask = 7
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("body_shape")
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
+scale = Vector2(1.4, 1.4)
+
+[node name="StateMachine" type="Node" parent="."]
+script = ExtResource("2_sm")
+
+[node name="IdleState" type="Node" parent="StateMachine"]
+script = ExtResource("3_idle")
+
+[node name="MoveState" type="Node" parent="StateMachine"]
+script = ExtResource("4_move")
+
+[node name="AttackState" type="Node" parent="StateMachine"]
+script = ExtResource("5_atk")
+
+[node name="DeadState" type="Node" parent="StateMachine"]
+script = ExtResource("6_dead")
+
+[node name="DetectionArea" type="Area2D" parent="."]
+collision_layer = 0
+collision_mask = 3
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="DetectionArea"]
+shape = SubResource("detect_shape")
+
+[node name="NameLabel" type="Label" parent="."]
+offset_left = -30.0
+offset_top = -28.0
+offset_right = 30.0
+offset_bottom = -12.0
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "NPC"
+theme_override_font_sizes/font_size = 9
+
+[node name="HPBarBG" type="ColorRect" parent="."]
+offset_left = -16.0
+offset_top = -36.0
+offset_right = 16.0
+offset_bottom = -30.0
+color = Color(0.2, 0.0, 0.0, 0.8)
+
+[node name="HPBarFill" type="ColorRect" parent="."]
+offset_left = -16.0
+offset_top = -36.0
+offset_right = 16.0
+offset_bottom = -30.0
+color = Color(0.8, 0.1, 0.1, 1.0)

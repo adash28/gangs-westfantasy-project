@@ -1,0 +1,31 @@
+## IdleState.gd
+## 待机状态：角色静止，Sprite 播放 idle 动画
+
+extends BaseState
+class_name IdleState
+
+func enter() -> void:
+	# 停止移动
+	if state_machine.owner_entity:
+		state_machine.owner_entity.velocity = Vector2.ZERO
+	# 播放 idle 动画（如果有 AnimatedSprite2D）
+	var entity = state_machine.owner_entity
+	if entity and entity.has_node("AnimatedSprite2D"):
+		var anim: AnimatedSprite2D = entity.get_node("AnimatedSprite2D")
+		if anim.sprite_frames and anim.sprite_frames.has_animation("idle"):
+			anim.play("idle")
+
+
+func exit() -> void:
+	pass
+
+
+func update(_delta: float) -> void:
+	pass
+
+
+func physics_update(_delta: float) -> void:
+	# IdleState 中强制速度为零（NPC 巡逻停止时）
+	var entity = state_machine.owner_entity
+	if entity and not entity is Player:
+		entity.velocity = Vector2.ZERO
