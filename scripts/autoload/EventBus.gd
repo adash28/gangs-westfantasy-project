@@ -80,6 +80,18 @@ signal weapon_durability_changed(entity, durability, max_durability)
 signal weapon_broken(entity, weapon_id)
 
 # ─────────────────────────────────────────────
+# 音效与特效事件
+# ─────────────────────────────────────────────
+
+## 播放音效
+## sound_name: 音效名称, position: 播放位置
+signal play_sound(sound_name, position)
+
+## 血液飞溅效果
+## position: 飞溅位置
+signal blood_splatter(position)
+
+# ─────────────────────────────────────────────
 # 任务系统事件（第一章用）
 # ─────────────────────────────────────────────
 

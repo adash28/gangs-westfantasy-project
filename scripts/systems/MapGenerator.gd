@@ -1,11 +1,13 @@
-## MapGenerator.gd
-## BSP（二叉空间分割）随机地图生成器
-## 生成流程：
-##   1. BSP 切割地图为若干房间
-##   2. 在房间中放置固定预制建筑（酒馆/商店等锚点）
-##   3. 用走廊连接相邻房间
-##   4. 填充地形细节（树木/石头）
-##   5. 生成 NPC 实体
+## MapGenerator.gd  v1.1
+## 增强版地图生成器
+## 功能：
+##   1. BSP切割房间
+##   2. 封闭地图边界（实心墙）
+##   3. 特殊房间：教堂、民宅、墓地
+##   4. 障碍物：讲台、椅子、床、柜子、墓碑、围栏
+##   5. 门（可用Q键开关）
+##   6. NPC归属房间（神父→教堂，不死者→墓地）
+##   7. 地形：树木、石头作为实心障碍物
 
 extends Node
 class_name MapGenerator
@@ -14,95 +16,108 @@ class_name MapGenerator
 # 地图参数
 # ─────────────────────────────────────────────
 
-## 地图网格尺寸（单位：格）
-@export var map_width: int  = 60
-@export var map_height: int = 60
+@export var map_width: int  = 100
+@export var map_height: int = 100
 
-## 单格像素大小
 const TILE_SIZE := 32
 
-## BSP 最小房间尺寸（格）
-const MIN_ROOM_SIZE := 8
-const MAX_ROOM_SIZE := 18
-
-## 每个房间最大分割次数（递归深度）
+const MIN_ROOM_SIZE := 10
+const MAX_ROOM_SIZE := 22
 const BSP_MAX_DEPTH := 5
 
 # ─────────────────────────────────────────────
-# Tile ID 定义（对应 TileSet 中的 source_id）
+# Tile ID
 # ─────────────────────────────────────────────
 enum TileType {
-	EMPTY  = -1,  # 空（地图外）
-	FLOOR  = 0,   # 草地/室内地板
-	WALL   = 1,   # 墙壁/树木边界
-	ROAD   = 2,   # 道路/走廊
-	WATER  = 3,   # 水面（不可通行）
-	TREE   = 4,   # 树木装饰
-	STONE  = 5    # 石头装饰
+	EMPTY  = -1,
+	FLOOR  = 0,
+	WALL   = 1,
+	ROAD   = 2,
+	WATER  = 3,
+	TREE   = 4,
+	STONE  = 5,
+	OBSTACLE = 6,   # 室内障碍（讲台/椅子/床/柜子/墓碑）
+	FENCE  = 7,     # 围栏（墓地）
+	DOOR   = 8      # 门
 }
 
 # ─────────────────────────────────────────────
-# 内部数据结构
+# 房间类型
+# ─────────────────────────────────────────────
+enum RoomType {
+	OPEN   = 0,
+	HOUSE  = 1,
+	CHURCH = 2,
+	GRAVEYARD = 3
+}
+
+# ─────────────────────────────────────────────
+# 内部数据
 # ─────────────────────────────────────────────
 
-## 网格数组：存储每格的 TileType
 var _grid: Array = []
-
-## 所有生成的房间（Rect2i 列表）
-var _rooms: Array = []
-
-## BSP 叶子节点房间（用于连廊）
+var _rooms: Array = []          # {rect, type, door_pos, npc_spawns}
 var _leaf_rooms: Array = []
 
-## TileMapLayer 节点引用（由外部赋值）
 var tilemap: TileMapLayer = null
-
-## NPC 生成父节点（由外部赋值）
 var npc_parent: Node2D = null
-
-## 玩家出生点（格坐标）
 var player_spawn: Vector2i = Vector2i(5, 5)
 
-## 预设锚点建筑（type → rect 格坐标）
 var anchor_buildings: Array = []
+
+# 记录各特殊房间位置（供NPC绑定）
+var church_room: Dictionary = {}
+var graveyard_room: Dictionary = {}
+var house_rooms: Array = []
+
+# 门的位置列表（给Door节点用）
+var door_positions: Array = []
+
+var npc_scene_path: String = "res://scenes/NPC.tscn"
 
 
 # ─────────────────────────────────────────────
 # 公共接口
 # ─────────────────────────────────────────────
 
-## 主生成入口，返回玩家出生点（像素坐标）
 func generate(seed_val: int = -1) -> Vector2:
 	if seed_val >= 0:
 		seed(seed_val)
 	else:
 		randomize()
 	
-	print("[MapGenerator] 开始生成地图，尺寸: %dx%d" % [map_width, map_height])
+	print("[MapGenerator] 开始生成地图 %dx%d" % [map_width, map_height])
 	
 	_init_grid()
 	_bsp_split(Rect2i(1, 1, map_width - 2, map_height - 2), 0)
+	_assign_room_types()
+	_carve_all_rooms()
 	_connect_rooms()
-	_place_anchor_buildings()
+	_place_border_walls()
+	_place_room_structures()
 	_fill_details()
 	_apply_to_tilemap()
 	_spawn_npcs()
 	
-	print("[MapGenerator] 地图生成完成，共 %d 个房间" % _rooms.size())
+	print("[MapGenerator] 完成！共 %d 个房间" % _rooms.size())
 	EventBus.level_loaded.emit("chapter1")
 	
-	# 返回像素坐标
 	return Vector2(player_spawn) * TILE_SIZE + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
 
 
 # ─────────────────────────────────────────────
-# Step 0：初始化网格
+# Step 0：初始化
 # ─────────────────────────────────────────────
 
 func _init_grid() -> void:
 	_grid.clear()
 	_rooms.clear()
 	_leaf_rooms.clear()
+	church_room = {}
+	graveyard_room = {}
+	house_rooms.clear()
+	door_positions.clear()
+	
 	for y in range(map_height):
 		var row: Array = []
 		for x in range(map_width):
@@ -111,16 +126,14 @@ func _init_grid() -> void:
 
 
 # ─────────────────────────────────────────────
-# Step 1：BSP 递归切割
+# Step 1：BSP 切割（只记录分区，不挖房间）
 # ─────────────────────────────────────────────
 
 func _bsp_split(rect: Rect2i, depth: int) -> void:
-	# 终止条件：超过最大深度 或 房间已足够小
 	if depth >= BSP_MAX_DEPTH or rect.size.x < MIN_ROOM_SIZE * 2 or rect.size.y < MIN_ROOM_SIZE * 2:
-		_carve_room(rect)
+		_leaf_rooms.append(rect)
 		return
 	
-	# 决定切割方向（优先切割较长的边，加一点随机性）
 	var split_horizontal: bool
 	if rect.size.x > rect.size.y * 1.25:
 		split_horizontal = false
@@ -130,142 +143,290 @@ func _bsp_split(rect: Rect2i, depth: int) -> void:
 		split_horizontal = randi() % 2 == 0
 	
 	if split_horizontal:
-		# 水平切割（切 y 轴）
 		var min_y = rect.position.y + MIN_ROOM_SIZE
 		var max_y = rect.position.y + rect.size.y - MIN_ROOM_SIZE
 		if min_y >= max_y:
-			_carve_room(rect)
+			_leaf_rooms.append(rect)
 			return
 		var split_y = randi_range(min_y, max_y)
-		var rect_a = Rect2i(rect.position.x, rect.position.y, rect.size.x, split_y - rect.position.y)
-		var rect_b = Rect2i(rect.position.x, split_y, rect.size.x, rect.position.y + rect.size.y - split_y)
-		_bsp_split(rect_a, depth + 1)
-		_bsp_split(rect_b, depth + 1)
+		_bsp_split(Rect2i(rect.position.x, rect.position.y, rect.size.x, split_y - rect.position.y), depth + 1)
+		_bsp_split(Rect2i(rect.position.x, split_y, rect.size.x, rect.position.y + rect.size.y - split_y), depth + 1)
 	else:
-		# 垂直切割（切 x 轴）
 		var min_x = rect.position.x + MIN_ROOM_SIZE
 		var max_x = rect.position.x + rect.size.x - MIN_ROOM_SIZE
 		if min_x >= max_x:
-			_carve_room(rect)
+			_leaf_rooms.append(rect)
 			return
 		var split_x = randi_range(min_x, max_x)
-		var rect_a = Rect2i(rect.position.x, rect.position.y, split_x - rect.position.x, rect.size.y)
-		var rect_b = Rect2i(split_x, rect.position.y, rect.position.x + rect.size.x - split_x, rect.size.y)
-		_bsp_split(rect_a, depth + 1)
-		_bsp_split(rect_b, depth + 1)
-
-
-## 在 BSP 叶节点处挖出房间（加一些内边距让房间比 BSP 分区略小）
-func _carve_room(bsp_rect: Rect2i) -> void:
-	var padding = 1
-	var rx = bsp_rect.position.x + padding + randi_range(0, 2)
-	var ry = bsp_rect.position.y + padding + randi_range(0, 2)
-	var rw = bsp_rect.size.x - padding * 2 - randi_range(0, 3)
-	var rh = bsp_rect.size.y - padding * 2 - randi_range(0, 3)
-	rw = max(rw, MIN_ROOM_SIZE - 2)
-	rh = max(rh, MIN_ROOM_SIZE - 2)
-	
-	var room = Rect2i(rx, ry, rw, rh)
-	_rooms.append(room)
-	_leaf_rooms.append(room)
-	
-	# 挖空格子
-	for y in range(ry, ry + rh):
-		for x in range(rx, rx + rw):
-			_set_tile(x, y, TileType.FLOOR)
+		_bsp_split(Rect2i(rect.position.x, rect.position.y, split_x - rect.position.x, rect.size.y), depth + 1)
+		_bsp_split(Rect2i(split_x, rect.position.y, rect.position.x + rect.size.x - split_x, rect.size.y), depth + 1)
 
 
 # ─────────────────────────────────────────────
-# Step 2：连接房间（走廊）
+# Step 2：分配房间类型
+# ─────────────────────────────────────────────
+
+func _assign_room_types() -> void:
+	var total = _leaf_rooms.size()
+	var church_idx = -1
+	var graveyard_idx = -1
+	
+	# 找最大房间给教堂
+	var max_area = 0
+	for i in range(total):
+		var r: Rect2i = _leaf_rooms[i]
+		var area = r.size.x * r.size.y
+		if area > max_area:
+			max_area = area
+			church_idx = i
+	
+	# 找最远（通常是另一角）给墓地
+	if total > 2:
+		var church_rect: Rect2i = _leaf_rooms[church_idx]
+		var church_center = church_rect.get_center()
+		var max_dist = 0.0
+		for i in range(total):
+			if i == church_idx:
+				continue
+			var r: Rect2i = _leaf_rooms[i]
+			var dist = church_center.distance_to(r.get_center())
+			if dist > max_dist:
+				max_dist = dist
+				graveyard_idx = i
+	
+	# 构建房间信息
+	for i in range(total):
+		var bsp_rect: Rect2i = _leaf_rooms[i]
+		var padding = 1
+		var rx = bsp_rect.position.x + padding + randi_range(0, 1)
+		var ry = bsp_rect.position.y + padding + randi_range(0, 1)
+		var rw = max(bsp_rect.size.x - padding * 2 - randi_range(0, 2), MIN_ROOM_SIZE - 2)
+		var rh = max(bsp_rect.size.y - padding * 2 - randi_range(0, 2), MIN_ROOM_SIZE - 2)
+		
+		var room_rect = Rect2i(rx, ry, rw, rh)
+		var room_type: int
+		
+		if i == church_idx:
+			room_type = RoomType.CHURCH
+		elif i == graveyard_idx:
+			room_type = RoomType.GRAVEYARD
+		elif randf() < 0.4 and total > 4:
+			room_type = RoomType.HOUSE
+		else:
+			room_type = RoomType.OPEN
+		
+		var room_info = {
+			"rect": room_rect,
+			"type": room_type,
+			"door_pos": Vector2i.ZERO,
+			"npc_spawns": []
+		}
+		_rooms.append(room_info)
+		
+		if room_type == RoomType.CHURCH:
+			church_room = room_info
+		elif room_type == RoomType.GRAVEYARD:
+			graveyard_room = room_info
+		elif room_type == RoomType.HOUSE:
+			house_rooms.append(room_info)
+
+
+# ─────────────────────────────────────────────
+# Step 3：挖空所有房间地板
+# ─────────────────────────────────────────────
+
+func _carve_all_rooms() -> void:
+	for room_info in _rooms:
+		var r: Rect2i = room_info["rect"]
+		
+		# 先挖室内地板（不包括墙边框）
+		for y in range(r.position.y + 1, r.position.y + r.size.y - 1):
+			for x in range(r.position.x + 1, r.position.x + r.size.x - 1):
+				_set_tile(x, y, TileType.FLOOR)
+		
+		# 墙边框保持 WALL（在 _init_grid 时已经全部是 WALL）
+		# 但需要确保边框格子是 WALL
+		for x in range(r.position.x, r.position.x + r.size.x):
+			_set_tile(x, r.position.y, TileType.WALL)
+			_set_tile(x, r.position.y + r.size.y - 1, TileType.WALL)
+		for y in range(r.position.y, r.position.y + r.size.y):
+			_set_tile(r.position.x, y, TileType.WALL)
+			_set_tile(r.position.x + r.size.x - 1, y, TileType.WALL)
+		
+		# 设置玩家出生点（第一个开放房间或教堂旁）
+		if room_info["type"] == RoomType.OPEN and player_spawn == Vector2i(5, 5):
+			player_spawn = r.get_center()
+
+
+# ─────────────────────────────────────────────
+# Step 4：连廊（打开房间墙壁并连接）
 # ─────────────────────────────────────────────
 
 func _connect_rooms() -> void:
-	if _leaf_rooms.size() < 2:
+	if _rooms.size() < 2:
 		return
-	# 简单策略：按顺序连接相邻房间中心，确保连通
-	for i in range(_leaf_rooms.size() - 1):
-		var room_a: Rect2i = _leaf_rooms[i]
-		var room_b: Rect2i = _leaf_rooms[i + 1]
+	
+	for i in range(_rooms.size() - 1):
+		var room_a: Rect2i = _rooms[i]["rect"]
+		var room_b: Rect2i = _rooms[i + 1]["rect"]
 		var center_a = room_a.get_center()
 		var center_b = room_b.get_center()
 		_carve_corridor(center_a, center_b)
 
 
-## L 形走廊：先横向后纵向（或随机选顺序）
 func _carve_corridor(from: Vector2i, to: Vector2i) -> void:
 	var cx = from.x
 	var cy = from.y
 	
-	# 随机决定先横还是先纵
 	if randi() % 2 == 0:
-		# 先横向
 		while cx != to.x:
 			cx += sign(to.x - cx)
-			_set_tile(cx, cy, TileType.ROAD)
-			_set_tile(cx, cy - 1, TileType.ROAD)  # 走廊宽度2格
-		# 再纵向
+			if _get_tile(cx, cy) == TileType.WALL:
+				_set_tile(cx, cy, TileType.ROAD)
+			if _get_tile(cx, cy - 1) == TileType.WALL:
+				_set_tile(cx, cy - 1, TileType.ROAD)
 		while cy != to.y:
 			cy += sign(to.y - cy)
-			_set_tile(cx, cy, TileType.ROAD)
-			_set_tile(cx + 1, cy, TileType.ROAD)
+			if _get_tile(cx, cy) == TileType.WALL:
+				_set_tile(cx, cy, TileType.ROAD)
+			if _get_tile(cx + 1, cy) == TileType.WALL:
+				_set_tile(cx + 1, cy, TileType.ROAD)
 	else:
-		# 先纵向
 		while cy != to.y:
 			cy += sign(to.y - cy)
-			_set_tile(cx, cy, TileType.ROAD)
-			_set_tile(cx + 1, cy, TileType.ROAD)
-		# 再横向
+			if _get_tile(cx, cy) == TileType.WALL:
+				_set_tile(cx, cy, TileType.ROAD)
+			if _get_tile(cx + 1, cy) == TileType.WALL:
+				_set_tile(cx + 1, cy, TileType.ROAD)
 		while cx != to.x:
 			cx += sign(to.x - cx)
-			_set_tile(cx, cy, TileType.ROAD)
-			_set_tile(cx, cy - 1, TileType.ROAD)
+			if _get_tile(cx, cy) == TileType.WALL:
+				_set_tile(cx, cy, TileType.ROAD)
+			if _get_tile(cx, cy - 1) == TileType.WALL:
+				_set_tile(cx, cy - 1, TileType.ROAD)
 
 
 # ─────────────────────────────────────────────
-# Step 3：放置锚点建筑（酒馆/商店）
+# Step 5：封闭地图边界
 # ─────────────────────────────────────────────
 
-func _place_anchor_buildings() -> void:
-	anchor_buildings.clear()
-	
-	if _rooms.size() == 0:
-		return
-	
-	# 选第一个足够大的房间放酒馆（3x3），设为玩家出生点附近
-	var tavern_placed = false
-	for room in _rooms:
-		if room.size.x >= 6 and room.size.y >= 6 and not tavern_placed:
-			var bx = room.position.x + 1
-			var by = room.position.y + 1
-			_mark_building(bx, by, 4, 4, "tavern")
-			# 村长房屋旁边设定为第一章触发点
-			player_spawn = Vector2i(bx + 5, by + 2)
-			tavern_placed = true
-	
-	# 选另一个房间放商店
-	if _rooms.size() >= 3:
-		var shop_room: Rect2i = _rooms[_rooms.size() / 2]
-		if shop_room.size.x >= 5 and shop_room.size.y >= 5:
-			var bx = shop_room.position.x + 1
-			var by = shop_room.position.y + 1
-			_mark_building(bx, by, 3, 3, "shop")
-
-
-## 标记建筑区域为 FLOOR，并记录元数据
-func _mark_building(x: int, y: int, w: int, h: int, building_type: String) -> void:
-	for gy in range(y, y + h):
-		for gx in range(x, x + w):
-			_set_tile(gx, gy, TileType.FLOOR)
-	anchor_buildings.append({
-		"type": building_type,
-		"rect": Rect2i(x, y, w, h),
-		"center": Vector2i(x + w / 2, y + h / 2)
-	})
-	print("[MapGenerator] 放置建筑: %s at (%d,%d)" % [building_type, x, y])
+func _place_border_walls() -> void:
+	# 四条边设为 WALL（实心，不可进入）
+	for x in range(map_width):
+		_set_tile(x, 0, TileType.WALL)
+		_set_tile(x, map_height - 1, TileType.WALL)
+	for y in range(map_height):
+		_set_tile(0, y, TileType.WALL)
+		_set_tile(map_width - 1, y, TileType.WALL)
 
 
 # ─────────────────────────────────────────────
-# Step 4：填充细节（树/石头）
+# Step 6：放置房间内部结构（障碍物、门）
+# ─────────────────────────────────────────────
+
+func _place_room_structures() -> void:
+	for room_info in _rooms:
+		var r: Rect2i = room_info["rect"]
+		var rtype: int = room_info["type"]
+		
+		match rtype:
+			RoomType.CHURCH:
+				_setup_church(room_info)
+			RoomType.GRAVEYARD:
+				_setup_graveyard(room_info)
+			RoomType.HOUSE:
+				_setup_house(room_info)
+		
+		# 为有围墙的房间添加门（教堂、民宅）
+		if rtype == RoomType.CHURCH or rtype == RoomType.HOUSE:
+			_add_door(room_info)
+
+
+func _setup_church(room_info: Dictionary) -> void:
+	var r: Rect2i = room_info["rect"]
+	var cx = r.get_center().x
+	var cy = r.get_center().y
+	
+	# 讲台（房间上方中央，2格宽1格高）
+	_set_tile(cx - 1, r.position.y + 2, TileType.OBSTACLE)
+	_set_tile(cx,     r.position.y + 2, TileType.OBSTACLE)
+	_set_tile(cx + 1, r.position.y + 2, TileType.OBSTACLE)
+	
+	# 椅子（两列，各3把）
+	var chair_y_start = r.position.y + 4
+	for row in range(3):
+		var gy = chair_y_start + row * 2
+		if gy < r.position.y + r.size.y - 2:
+			_set_tile(cx - 3, gy, TileType.OBSTACLE)
+			_set_tile(cx + 3, gy, TileType.OBSTACLE)
+	
+	print("[MapGenerator] 教堂结构放置完成")
+
+
+func _setup_graveyard(room_info: Dictionary) -> void:
+	var r: Rect2i = room_info["rect"]
+	
+	# 内部围栏（距离外墙2格的内边框）
+	for x in range(r.position.x + 2, r.position.x + r.size.x - 2):
+		_set_tile(x, r.position.y + 2, TileType.FENCE)
+		_set_tile(x, r.position.y + r.size.y - 3, TileType.FENCE)
+	for y in range(r.position.y + 2, r.position.y + r.size.y - 2):
+		_set_tile(r.position.x + 2, y, TileType.FENCE)
+		_set_tile(r.position.x + r.size.x - 3, y, TileType.FENCE)
+	
+	# 围栏入口（南侧中央）
+	var gate_x = r.get_center().x
+	_set_tile(gate_x, r.position.y + r.size.y - 3, TileType.ROAD)
+	_set_tile(gate_x - 1, r.position.y + r.size.y - 3, TileType.ROAD)
+	
+	# 墓碑（内部随机分布）
+	for i in range(6):
+		var attempts = 15
+		while attempts > 0:
+			attempts -= 1
+			var tx = randi_range(r.position.x + 3, r.position.x + r.size.x - 4)
+			var ty = randi_range(r.position.y + 3, r.position.y + r.size.y - 4)
+			if _get_tile(tx, ty) == TileType.FLOOR:
+				_set_tile(tx, ty, TileType.OBSTACLE)
+				break
+	
+	print("[MapGenerator] 墓地结构放置完成")
+
+
+func _setup_house(room_info: Dictionary) -> void:
+	var r: Rect2i = room_info["rect"]
+	
+	# 床（右下角）
+	var bed_x = r.position.x + r.size.x - 3
+	var bed_y = r.position.y + r.size.y - 3
+	if _get_tile(bed_x, bed_y) == TileType.FLOOR:
+		_set_tile(bed_x, bed_y, TileType.OBSTACLE)
+		_set_tile(bed_x - 1, bed_y, TileType.OBSTACLE)
+	
+	# 柜子（左下角）
+	var cab_x = r.position.x + 2
+	var cab_y = r.position.y + r.size.y - 3
+	if _get_tile(cab_x, cab_y) == TileType.FLOOR:
+		_set_tile(cab_x, cab_y, TileType.OBSTACLE)
+
+
+func _add_door(room_info: Dictionary) -> void:
+	var r: Rect2i = room_info["rect"]
+	
+	# 在南墙中央设置门
+	var door_x = r.get_center().x
+	var door_y = r.position.y + r.size.y - 1
+	
+	# 确保门位置在地图范围内且是墙壁
+	if door_x >= 1 and door_x < map_width - 1 and door_y >= 1 and door_y < map_height - 1:
+		_set_tile(door_x, door_y, TileType.DOOR)
+		room_info["door_pos"] = Vector2i(door_x, door_y)
+		door_positions.append(Vector2i(door_x, door_y))
+		print("[MapGenerator] 门放置于 (%d,%d)" % [door_x, door_y])
+
+
+# ─────────────────────────────────────────────
+# Step 7：填充细节（树/石头）
 # ─────────────────────────────────────────────
 
 func _fill_details() -> void:
@@ -273,17 +434,16 @@ func _fill_details() -> void:
 		for x in range(1, map_width - 1):
 			if _get_tile(x, y) != TileType.WALL:
 				continue
-			# WALL 格子随机变成树或石头（视觉装饰）
 			var r = randf()
-			if r < 0.55:
+			if r < 0.45:
 				_set_tile(x, y, TileType.TREE)
-			elif r < 0.65:
+			elif r < 0.55:
 				_set_tile(x, y, TileType.STONE)
-			# else 保持 WALL（实心墙）
+			# else 保持 WALL
 
 
 # ─────────────────────────────────────────────
-# Step 5：写入 TileMapLayer
+# Step 8：写入 TileMapLayer
 # ─────────────────────────────────────────────
 
 func _apply_to_tilemap() -> void:
@@ -300,79 +460,108 @@ func _apply_to_tilemap() -> void:
 			
 			match tile_type:
 				TileType.FLOOR:
-					atlas_coords = Vector2i(0, 0)   # TileSet 中草地格子坐标
+					atlas_coords = Vector2i(0, 0)
 				TileType.ROAD:
-					atlas_coords = Vector2i(1, 0)   # 道路格子
+					atlas_coords = Vector2i(1, 0)
 				TileType.WALL:
-					atlas_coords = Vector2i(2, 0)   # 墙壁
+					atlas_coords = Vector2i(2, 0)
 				TileType.TREE:
-					atlas_coords = Vector2i(3, 0)   # 树木
+					atlas_coords = Vector2i(3, 0)
 				TileType.STONE:
-					atlas_coords = Vector2i(4, 0)   # 石头
+					atlas_coords = Vector2i(4, 0)
 				TileType.WATER:
-					atlas_coords = Vector2i(5, 0)   # 水面
+					atlas_coords = Vector2i(5, 0)
+				TileType.OBSTACLE:
+					atlas_coords = Vector2i(6, 0)
+				TileType.FENCE:
+					atlas_coords = Vector2i(7, 0)
+				TileType.DOOR:
+					atlas_coords = Vector2i(8, 0)
 				_:
 					continue
 			
-			# source_id=0 对应第一个 TileSet source
 			tilemap.set_cell(Vector2i(x, y), 0, atlas_coords)
 
 
 # ─────────────────────────────────────────────
-# Step 6：生成 NPC 实体
+# Step 9：生成 NPC
 # ─────────────────────────────────────────────
-
-## NPC 预制体场景路径（由具体场景设置）
-var npc_scene_path: String = "res://scenes/NPC.tscn"
 
 func _spawn_npcs() -> void:
 	if npc_parent == null:
-		push_warning("[MapGenerator] npc_parent 未设置，跳过NPC生成")
+		push_warning("[MapGenerator] npc_parent 未设置")
 		return
 	
 	var npc_scene = load(npc_scene_path)
 	if npc_scene == null:
-		push_warning("[MapGenerator] 无法加载NPC场景: " + npc_scene_path)
+		push_warning("[MapGenerator] 无法加载NPC场景")
 		return
 	
-	# 在各房间生成 NPC
-	for i in range(_rooms.size()):
-		var room: Rect2i = _rooms[i]
-		
-		# 前两个房间生成友好NPC（人类）
-		if i < 2:
-			_spawn_npc_in_room(npc_scene, room, "villager")
-			if i == 1:
-				_spawn_npc_in_room(npc_scene, room, "merchant")
-		# 后续房间生成怪物
-		elif i >= 2:
-			var monster_count = randi_range(1, 3)
-			for _j in range(monster_count):
-				var monster_type = "goblin" if randf() > 0.4 else "undead"
-				_spawn_npc_in_room(npc_scene, room, monster_type)
+	# 1. 神父 → 教堂
+	if not church_room.is_empty():
+		var ch_rect: Rect2i = church_room["rect"]
+		_spawn_npc_in_room_typed(npc_scene, ch_rect, "priest", true)
 	
-	# 在第一个房间额外生成神父
-	if _rooms.size() > 0:
-		_spawn_npc_in_room(npc_scene, _rooms[0], "priest")
+	# 2. 不死者 → 墓地（2~3只）
+	if not graveyard_room.is_empty():
+		var gv_rect: Rect2i = graveyard_room["rect"]
+		var undead_count = randi_range(2, 3)
+		for _i in range(undead_count):
+			_spawn_npc_in_room_typed(npc_scene, gv_rect, "undead", false)
+	
+	# 3. 村民/商人 → 民宅房间
+	var merchant_placed = false
+	for house in house_rooms:
+		var h_rect: Rect2i = house["rect"]
+		if not merchant_placed:
+			_spawn_npc_in_room_typed(npc_scene, h_rect, "merchant", true)
+			merchant_placed = true
+		else:
+			_spawn_npc_in_room_typed(npc_scene, h_rect, "villager", true)
+	
+	# 如果没有民宅，在开放房间放村民/商人
+	if house_rooms.is_empty():
+		var open_rooms = _rooms.filter(func(r): return r["type"] == RoomType.OPEN)
+		if open_rooms.size() >= 1:
+			_spawn_npc_in_room_typed(npc_scene, open_rooms[0]["rect"], "villager", true)
+		if open_rooms.size() >= 2:
+			_spawn_npc_in_room_typed(npc_scene, open_rooms[1]["rect"], "merchant", true)
+	
+	# 4. 哥布林 → 开放地带（少量）
+	var open_rooms = _rooms.filter(func(r): return r["type"] == RoomType.OPEN)
+	var goblin_count = 0
+	var max_goblins = min(3, open_rooms.size())
+	for room in open_rooms:
+		if goblin_count >= max_goblins:
+			break
+		if randf() < 0.5:
+			_spawn_npc_in_room_typed(npc_scene, room["rect"], "goblin", false)
+			goblin_count += 1
 
 
-func _spawn_npc_in_room(npc_scene: PackedScene, room: Rect2i, char_id: String) -> void:
-	# 在房间内随机选一个 FLOOR 格子
-	var attempts = 20
+func _spawn_npc_in_room_typed(npc_scene: PackedScene, room_rect: Rect2i, char_id: String, is_friendly: bool) -> void:
+	var attempts = 30
 	while attempts > 0:
 		attempts -= 1
-		var gx = randi_range(room.position.x + 1, room.position.x + room.size.x - 2)
-		var gy = randi_range(room.position.y + 1, room.position.y + room.size.y - 2)
+		var gx = randi_range(room_rect.position.x + 2, room_rect.position.x + room_rect.size.x - 3)
+		var gy = randi_range(room_rect.position.y + 2, room_rect.position.y + room_rect.size.y - 3)
 		if _get_tile(gx, gy) == TileType.FLOOR:
 			var npc_node = npc_scene.instantiate()
 			npc_parent.add_child(npc_node)
 			npc_node.global_position = Vector2(gx, gy) * TILE_SIZE + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
-			npc_node.init_npc(char_id)
+			
+			# 设置NPC所在房间信息（用于巡逻边界）
+			if npc_node.has_method("init_npc_with_room"):
+				npc_node.init_npc_with_room(char_id, room_rect)
+			else:
+				npc_node.init_npc(char_id)
+			
+			print("[MapGenerator] 生成 %s 于 (%d,%d)" % [char_id, gx, gy])
 			return
 
 
 # ─────────────────────────────────────────────
-# 网格工具方法
+# 工具方法
 # ─────────────────────────────────────────────
 
 func _set_tile(x: int, y: int, tile_type: int) -> void:
@@ -387,13 +576,16 @@ func _get_tile(x: int, y: int) -> int:
 	return _grid[y][x]
 
 
-## 判断某格子是否可行走（非 WALL/TREE/STONE/WATER）
 func is_walkable(x: int, y: int) -> bool:
 	var t = _get_tile(x, y)
 	return t == TileType.FLOOR or t == TileType.ROAD
 
 
-## 获取所有可行走格子（供 A* 寻路使用）
+func is_solid(x: int, y: int) -> bool:
+	var t = _get_tile(x, y)
+	return t == TileType.WALL or t == TileType.TREE or t == TileType.STONE or t == TileType.OBSTACLE or t == TileType.FENCE or t == TileType.WATER
+
+
 func get_walkable_cells() -> Array:
 	var result: Array = []
 	for y in range(map_height):
@@ -403,10 +595,64 @@ func get_walkable_cells() -> Array:
 	return result
 
 
-## 获取某类型建筑的中心像素坐标
+## A* 寻路（简化版，供NPC使用）
+func find_path(from_tile: Vector2i, to_tile: Vector2i) -> Array:
+	# 简单BFS（小地图用），返回格坐标路径
+	if from_tile == to_tile:
+		return [from_tile]
+	
+	var open_set = [from_tile]
+	var came_from: Dictionary = {}
+	var visited: Dictionary = {}
+	visited[from_tile] = true
+	
+	var max_iterations = 500
+	var iter = 0
+	
+	while open_set.size() > 0 and iter < max_iterations:
+		iter += 1
+		var current = open_set.pop_front()
+		
+		if current == to_tile:
+			# 重建路径
+			var path = [current]
+			while came_from.has(current):
+				current = came_from[current]
+				path.push_front(current)
+			return path
+		
+		var neighbors = [
+			Vector2i(current.x + 1, current.y),
+			Vector2i(current.x - 1, current.y),
+			Vector2i(current.x, current.y + 1),
+			Vector2i(current.x, current.y - 1)
+		]
+		
+		for n in neighbors:
+			if visited.has(n):
+				continue
+			if is_solid(n.x, n.y):
+				continue
+			visited[n] = true
+			came_from[n] = current
+			open_set.append(n)
+	
+	return []  # 无路径
+
+
 func get_building_pixel_pos(building_type: String) -> Vector2:
 	for b in anchor_buildings:
 		if b["type"] == building_type:
 			var c: Vector2i = b["center"]
 			return Vector2(c) * TILE_SIZE + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
 	return Vector2.ZERO
+
+
+## 获取世界像素坐标对应的格坐标
+func world_to_tile(world_pos: Vector2) -> Vector2i:
+	return Vector2i(int(world_pos.x / TILE_SIZE), int(world_pos.y / TILE_SIZE))
+
+
+## 格坐标转世界像素坐标（格中心）
+func tile_to_world(tile_pos: Vector2i) -> Vector2:
+	return Vector2(tile_pos) * TILE_SIZE + Vector2(TILE_SIZE / 2, TILE_SIZE / 2)
