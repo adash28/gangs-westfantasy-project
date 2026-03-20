@@ -99,6 +99,10 @@ func _spawn_player(spawn_pos: Vector2) -> void:
 		player_node.sprite.scale = Vector2(2.0, 2.0)
 		player_node.sprite.position = Vector2(0, -8)
 	
+	# 确保名称标签显示正确名称
+	if player_node.has_node("NameLabel"):
+		player_node.get_node("NameLabel").text = player_node.display_name
+	
 	# 初始化 HUD
 	if hud and hud.has_method("init_for_player"):
 		hud.init_for_player(player_node)
@@ -114,13 +118,17 @@ func _on_npc_container_child_entered_tree(npc_node: Node) -> void:
 		return
 	await get_tree().process_frame
 	
-	# 设置NPC精灵
+	# 设置NPC精灵（setup_from_data 已在 init_npc 中调用，这里是保险）
 	if npc_node.sprite:
 		var tex = PlaceholderSpriteGenerator.generate_for_character(npc_node.character_id)
 		if tex:
 			npc_node.sprite.texture = tex
 			npc_node.sprite.scale = Vector2(1.5, 1.5)
 			npc_node.sprite.position = Vector2(0, -6)
+	
+	# 确保名称标签显示正确名称
+	if npc_node.has_node("NameLabel"):
+		npc_node.get_node("NameLabel").text = npc_node.display_name
 	
 	# 设置 NPC 血条
 	var hp_fill = npc_node.get_node_or_null("HPBarFill") as ColorRect

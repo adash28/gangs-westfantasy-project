@@ -29,8 +29,11 @@ func enter() -> void:
 		_knockback_speed = 0.0
 	
 	# 变红效果
-	if entity.has_node("Sprite2D"):
-		entity.get_node("Sprite2D").modulate = Color(1, 0.4, 0.4, 1)
+	var sp = entity.get("sprite")
+	if sp and is_instance_valid(sp):
+		sp.modulate = Color(1, 0.4, 0.4, 1)
+	elif entity.has_node("AnimatedSprite2D"):
+		entity.get_node("AnimatedSprite2D").modulate = Color(1, 0.4, 0.4, 1)
 	
 	EventBus.play_sound.emit("hit", entity.global_position)
 
@@ -41,8 +44,11 @@ func exit() -> void:
 		return
 	
 	# 恢复正常颜色
-	if entity.has_node("Sprite2D"):
-		entity.get_node("Sprite2D").modulate = Color(1, 1, 1, 1)
+	var sp = entity.get("sprite")
+	if sp and is_instance_valid(sp):
+		sp.modulate = Color(1, 1, 1, 1)
+	elif entity.has_node("AnimatedSprite2D"):
+		entity.get_node("AnimatedSprite2D").modulate = Color(1, 1, 1, 1)
 	
 	_knockback_direction = Vector2.ZERO
 	_knockback_speed = 0.0

@@ -22,8 +22,10 @@ var owner_entity: Node = null
 
 
 func _ready() -> void:
-	# 等一帧，让所有子节点完成 _ready()
-	await owner.ready
+	# 等待父节点（owner entity）准备完成
+	var parent = get_parent()
+	if parent and not parent.is_node_ready():
+		await parent.ready
 	
 	# 移除可能已存在的 HitStunState 节点（避免重复）
 	var existing_hit_stun = get_node_or_null("HitStunState")

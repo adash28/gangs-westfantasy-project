@@ -234,7 +234,8 @@ func _on_detection_body_entered(body: Node) -> void:
 		FactionSystem.Relation.HOSTILE:
 			_set_attack_target(body)
 		FactionSystem.Relation.LOYAL, FactionSystem.Relation.ALLIED:
-			if body is Player:
+			# 使用组检测代替直接类型检测，避免循环依赖
+			if body.is_in_group("player"):
 				follow_target = body
 
 
@@ -280,7 +281,7 @@ func _react_to_being_attacked(attacker: BaseCharacter) -> void:
 # 交互
 # ─────────────────────────────────────────────
 
-func interact(player: Player) -> void:
+func interact(player) -> void:
 	var data = DataManager.get_character(character_id)
 	var interaction_type = data.get("interaction_type", "none")
 	
@@ -291,7 +292,7 @@ func interact(player: Player) -> void:
 			_interact_shop(player)
 
 
-func _interact_hire(player: Player, data: Dictionary) -> void:
+func _interact_hire(player, data: Dictionary) -> void:
 	var cost = data.get("hire_cost", 20)
 	if GameStateManager.spend_gold(cost):
 		faction = FactionSystem.Faction.ALLY
@@ -305,7 +306,7 @@ func _interact_hire(player: Player, data: Dictionary) -> void:
 		EventBus.dialogue_triggered.emit(display_name, ["你的金币不够，我可是要价 %d 金币的！" % cost])
 
 
-func _interact_shop(_player: Player) -> void:
+func _interact_shop(_player) -> void:
 	GameStateManager.change_state(GameStateManager.GameState.SHOP)
 	EventBus.shop_opened.emit(self)
 

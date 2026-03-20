@@ -1,7 +1,7 @@
 ## FactionSystem.gd
 ## 全局阵营与关系系统（单例）
 ## 管理游戏中所有阵营定义，以及实体间的关系判定
-## 
+##
 ## 阵营枚举:
 ##   HUMAN   - 人类（村民/商人/神父等）
 ##   MONSTER - 魔物（哥布林/不死者等）
@@ -92,29 +92,30 @@ var _individual_overrides: Dictionary = {}
 
 ## 获取 entity_a 对 entity_b 的关系
 ## entity_a, entity_b 需要有 faction 属性和 unique_id 属性
-func get_relation(entity_a: Node, entity_b: Node) -> Relation:
+## 注意：返回 int（Relation 枚举值），GDScript 4.x 枚举不可作为函数返回类型
+func get_relation(entity_a: Node, entity_b: Node) -> int:
 	var id_a = entity_a.get("unique_id")
 	var id_b = entity_b.get("unique_id")
-	
+
 	# 先检查个体覆盖表
 	if id_a and id_b:
 		if _individual_overrides.has(id_a) and _individual_overrides[id_a].has(id_b):
 			return _individual_overrides[id_a][id_b]
-	
-	# 使用默认阵营矩阵（修复处）
-	var faction_a: int = entity_a.get("faction")
+
+	# 使用默认阵营矩阵
+	var faction_a = entity_a.get("faction")
 	if faction_a == null:
 		faction_a = Faction.NEUTRAL
-	
-	var faction_b: int = entity_b.get("faction")
+
+	var faction_b = entity_b.get("faction")
 	if faction_b == null:
 		faction_b = Faction.NEUTRAL
-	
+
 	return get_faction_relation(faction_a, faction_b)
 
 
 ## 获取两个阵营之间的默认关系
-func get_faction_relation(faction_a: int, faction_b: int) -> Relation:
+func get_faction_relation(faction_a: int, faction_b: int) -> int:
 	if _default_matrix.has(faction_a) and _default_matrix[faction_a].has(faction_b):
 		return _default_matrix[faction_a][faction_b]
 	return Relation.NEUTRAL
@@ -141,24 +142,22 @@ func is_neutral(entity_a: Node, entity_b: Node) -> bool:
 # ─────────────────────────────────────────────
 
 ## 设置个体关系覆盖（双向，除非 one_way=true）
-func set_individual_relation(entity_a: Node, entity_b: Node, relation: Relation, one_way: bool = false) -> void:
+func set_individual_relation(entity_a: Node, entity_b: Node, relation: int, one_way: bool = false) -> void:
 	var id_a = entity_a.get("unique_id")
 	var id_b = entity_b.get("unique_id")
 	if not id_a or not id_b:
 		push_warning("[FactionSystem] 实体缺少 unique_id，无法设置个体关系")
 		return
-	
+
 	if not _individual_overrides.has(id_a):
 		_individual_overrides[id_a] = {}
 	_individual_overrides[id_a][id_b] = relation
-	
+
 	if not one_way:
-		# 同时设置对方关系（如果不是单向的）
-		# 例如：A 变成 B 的同盟，B 也相应变成 A 的同盟
 		if not _individual_overrides.has(id_b):
 			_individual_overrides[id_b] = {}
 		_individual_overrides[id_b][id_a] = _mirror_relation(relation)
-	
+
 	EventBus.relation_changed.emit(entity_a, relation)
 
 
@@ -195,7 +194,7 @@ func get_relation_name(relation: int) -> String:
 # ─────────────────────────────────────────────
 
 ## 关系的镜像（A对B的关系确定后B对A的合理对应关系）
-func _mirror_relation(relation: Relation) -> Relation:
+func _mirror_relation(relation: int) -> int:
 	match relation:
 		Relation.LOYAL:   return Relation.ALLIED   # 对方至少也是同盟
 		Relation.ALLIED:  return Relation.ALLIED

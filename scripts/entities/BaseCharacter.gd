@@ -13,7 +13,7 @@ var unique_id: String = ""
 var character_id: String = ""
 var display_name: String = "未知"
 
-var faction: int = FactionSystem.Faction.NEUTRAL
+var faction: int = 4  # 默认中立，等价于 FactionSystem.Faction.NEUTRAL
 
 
 # ─────────────────────────────────────────────
@@ -47,7 +47,8 @@ var skills: Array = []
 # ─────────────────────────────────────────────
 
 @onready var state_machine_node: StateMachine = $StateMachine if has_node("StateMachine") else null
-@onready var sprite: Sprite2D = $Sprite2D if has_node("Sprite2D") else null
+# sprite: 优先使用 Sprite2D，其次动态创建（场景实际用 AnimatedSprite2D）
+var sprite: Sprite2D = null
 @onready var collision: CollisionShape2D = $CollisionShape2D if has_node("CollisionShape2D") else null
 @onready var detection_area: Area2D = $DetectionArea if has_node("DetectionArea") else null
 @onready var attack_area: Area2D = $AttackArea if has_node("AttackArea") else null
@@ -84,6 +85,19 @@ var _last_velocity: Vector2 = Vector2.ZERO
 # ─────────────────────────────────────────────
 
 func _ready() -> void:
+	# 初始化 sprite：优先查找现有 Sprite2D，没有则动态创建
+	if has_node("Sprite2D"):
+		sprite = $Sprite2D
+	else:
+		# 动态创建一个 Sprite2D 覆盖在 AnimatedSprite2D 上
+		sprite = Sprite2D.new()
+		sprite.name = "Sprite2D"
+		sprite.z_index = 1
+		add_child(sprite)
+		# 如果有 AnimatedSprite2D，将其隐藏（用Sprite2D代替显示）
+		if has_node("AnimatedSprite2D"):
+			$AnimatedSprite2D.visible = false
+	
 	if state_machine_node:
 		print("[BaseCharacter] %s 状态机节点: %s" % [display_name, state_machine_node.name])
 	
@@ -96,6 +110,9 @@ func _ready() -> void:
 
 func _apply_character_sprite() -> void:
 	if sprite == null:
+		return
+	
+	if character_id.is_empty():
 		return
 	
 	var tex = PlaceholderSpriteGenerator.generate_for_character(character_id)
@@ -143,6 +160,9 @@ func setup_from_data(char_id: String, is_npc: bool = false) -> void:
 	
 	# 更新精灵（此时character_id已设置）
 	_apply_character_sprite()
+	
+	# 更新名称标签（NameLabel 节点）
+	_update_name_label()
 	
 	print("[BaseCharacter] %s 初始化: HP=%.0f, 武器=%s" % [
 		display_name, max_hp, weapon_data.get("display_name", "无")
@@ -252,7 +272,7 @@ func die(killer: BaseCharacter = null) -> void:
 	FactionSystem.clear_individual_relations(self)
 	
 	print("[BaseCharacter] %s 死亡！击杀者: %s" % [
-		display_name, killer.display_name if killer else "未知"
+		display_name, killer.display_name if killer and is_instance_valid(killer) else "未知"
 	])
 
 
@@ -349,6 +369,13 @@ func is_low_hp(threshold: float = 0.3) -> bool:
 	return get_hp_percent() < threshold
 
 
+## 更新头顶名称标签
+func _update_name_label() -> void:
+	if has_node("NameLabel"):
+		var lbl: Label = get_node("NameLabel")
+		lbl.text = display_name
+
+
 # ─────────────────────────────────────────────
 # 击退和僵直
 # ─────────────────────────────────────────────
@@ -432,17 +459,16 @@ func _corpse_hit(attacker: BaseCharacter) -> void:
 
 
 func _play_corpse_hit_effect() -> void:
-	if has_node("Sprite2D"):
-		var sp: Sprite2D = get_node("Sprite2D")
-		sp.modulate = Color(1, 0.3, 0.3, 1)
+	if sprite:
+		sprite.modulate = Color(1, 0.3, 0.3, 1)
 		var timer = get_tree().create_timer(0.1)
 		timer.timeout.connect(_restore_corpse_color)
 	EventBus.play_sound.emit("corpse_hit", global_position)
 
 
 func _restore_corpse_color() -> void:
-	if has_node("Sprite2D"):
-		get_node("Sprite2D").modulate = Color(1, 1, 1, 1)
+	if sprite:
+		sprite.modulate = Color(1, 1, 1, 1)
 
 
 func _explode_corpse() -> void:
