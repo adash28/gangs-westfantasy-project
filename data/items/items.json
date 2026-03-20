@@ -7,11 +7,10 @@
       "durability": 100,
       "durability_per_hit": 20,
       "weapon_type": "melee",
-      "type": "melee",
       "weight": 5,
       "special_target": null,
       "special_multiplier": 1.0,
-      "description": "普通的斧头，耐久度有限，重量大击退效果强"
+      "description": "普通的斧头，耐久度有限"
     },
     "cleaver": {
       "id": "cleaver",
@@ -20,7 +19,6 @@
       "durability": 100,
       "durability_per_hit": 8,
       "weapon_type": "melee",
-      "type": "melee",
       "weight": 3,
       "special_target": null,
       "special_multiplier": 1.0,
@@ -33,11 +31,13 @@
       "durability": -1,
       "durability_per_hit": 0,
       "weapon_type": "ranged",
-      "type": "ranged",
       "weight": 0,
-      "special_target": "undead",
+      "projectile_color": "yellow",
+      "projectile_speed": 300,
+      "projectile_lifetime": 1.5,
+      "special_target": "UNDEAD",
       "special_multiplier": 2.0,
-      "description": "神圣之杖，不损耐久度，对不死者伤害翻倍，可发射圣光射弹"
+      "description": "神圣之杖，不损耐久度，对不死者伤害翻倍，发射远程射弹"
     },
     "dagger": {
       "id": "dagger",
@@ -46,11 +46,10 @@
       "durability": -1,
       "durability_per_hit": 0,
       "weapon_type": "melee",
-      "type": "melee",
       "weight": 1,
-      "special_target": "undead",
+      "special_target": "UNDEAD",
       "special_multiplier": 2.0,
-      "description": "锋利的匕首，轻巧灵活"
+      "description": "锋利的匕首"
     },
     "sword": {
       "id": "sword",
@@ -59,7 +58,6 @@
       "durability": 100,
       "durability_per_hit": 3,
       "weapon_type": "melee",
-      "type": "melee",
       "weight": 4,
       "special_target": null,
       "special_multiplier": 1.0,
@@ -72,7 +70,6 @@
       "durability": -1,
       "durability_per_hit": 0,
       "weapon_type": "melee",
-      "type": "melee",
       "weight": 1,
       "special_target": null,
       "special_multiplier": 1.0,
@@ -84,33 +81,21 @@
       "id": "health_potion",
       "display_name": "治疗药水",
       "type": "consumable",
-      "item_category": "potion",
+      "item_type": "health_potion",
       "effect": "heal",
       "effect_value": 30,
       "base_price": 15,
-      "icon_color": "red",
-      "description": "恢复30点生命值，按H键使用"
+      "description": "恢复30点生命值"
     },
     "mana_potion": {
       "id": "mana_potion",
       "display_name": "魔力药水",
       "type": "consumable",
-      "item_category": "potion",
+      "item_type": "mana_potion",
       "effect": "restore_mp",
       "effect_value": 30,
       "base_price": 20,
-      "icon_color": "blue",
-      "description": "恢复30点魔力，按B键使用"
-    }
-  },
-  "items": {
-    "gold_coin": {
-      "id": "gold_coin",
-      "display_name": "金币",
-      "type": "currency",
-      "item_category": "currency",
-      "icon_color": "yellow",
-      "description": "闪亮的金币"
+      "description": "恢复30点魔力"
     }
   }
 }

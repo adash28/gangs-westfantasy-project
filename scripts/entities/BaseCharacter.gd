@@ -1,25 +1,25 @@
-## BaseCharacter.gd  v1.1
-## 全角色基类：增强版
-## 新增：更大像素小人精灵(16x24)、碰撞弹回、武器显示改进
+## BaseCharacter.gd
+## 所有游戏实体（玩家、NPC、怪物）的基础类 v1.0.2
+## 新增：击退、僵直、尸体爆裂、武器显示、挥击弧线、射弹
 
 extends CharacterBody2D
 class_name BaseCharacter
 
 # ─────────────────────────────────────────────
-# 身份
+# 身份标识
 # ─────────────────────────────────────────────
-
 var unique_id: String = ""
 var character_id: String = ""
 var display_name: String = "未知"
 
-var faction: int = 4  # 默认中立，等价于 FactionSystem.Faction.NEUTRAL
-
+# ─────────────────────────────────────────────
+# 阵营
+# ─────────────────────────────────────────────
+var faction: int = FactionSystem.Faction.NEUTRAL
 
 # ─────────────────────────────────────────────
-# 属性
+# 核心属性
 # ─────────────────────────────────────────────
-
 var max_hp: float = 100.0
 var current_hp: float = 100.0
 var max_mp: float = 0.0
@@ -32,52 +32,56 @@ enum Direction { RIGHT, DOWN, LEFT, UP }
 var facing_direction: int = Direction.DOWN
 var is_alive: bool = true
 
-
 # ─────────────────────────────────────────────
-# 武器
+# 武器组件
 # ─────────────────────────────────────────────
-
 var weapon_data: Dictionary = {}
 var weapon_durability: float = -1.0
+
+# ─────────────────────────────────────────────
+# 背包系统 (v1.0.2)
+# ─────────────────────────────────────────────
+const INVENTORY_SIZE := 25  # 5x5 grid
+var inventory: Array = []  # Array of item dictionaries
+var health_potions: int = 0
+var mana_potions: int = 0
+
+# ─────────────────────────────────────────────
+# 技能
+# ─────────────────────────────────────────────
 var skills: Array = []
 
-
 # ─────────────────────────────────────────────
-# 节点引用
+# 打击感参数 (v1.0.2)
 # ─────────────────────────────────────────────
-
-@onready var state_machine_node: StateMachine = $StateMachine if has_node("StateMachine") else null
-# sprite: 优先使用 Sprite2D，其次动态创建（场景实际用 AnimatedSprite2D）
-var sprite: Sprite2D = null
-@onready var collision: CollisionShape2D = $CollisionShape2D if has_node("CollisionShape2D") else null
-@onready var detection_area: Area2D = $DetectionArea if has_node("DetectionArea") else null
-@onready var attack_area: Area2D = $AttackArea if has_node("AttackArea") else null
-
-var weapon_sprite: Sprite2D = null
-
-
-# ─────────────────────────────────────────────
-# 常量
-# ─────────────────────────────────────────────
-
-const TILE_SIZE := 32
-const MP_REGEN_INTERVAL := 1.0
-const KNOCKBACK_FORCE := 350.0
+const KNOCKBACK_FORCE := 400.0
 const KNOCKBACK_DECAY := 0.85
-
-
-# ─────────────────────────────────────────────
-# 击退 / 状态
-# ─────────────────────────────────────────────
-
+const DEATH_KNOCKBACK_MULTIPLIER := 1.5
 var _knockback_velocity: Vector2 = Vector2.ZERO
 var _is_in_hit_stun: bool = false
 var _corpse_hit_count: int = 0
 var _death_knockback: Vector2 = Vector2.ZERO
-var _mp_regen_timer: float = 0.0
 
-# 碰撞反弹相关
-var _last_velocity: Vector2 = Vector2.ZERO
+# ─────────────────────────────────────────────
+# 武器显示节点 (v1.0.2)
+# ─────────────────────────────────────────────
+var _weapon_sprite: Sprite2D = null
+var _swing_arc_node: Node2D = null
+
+# ─────────────────────────────────────────────
+# 节点引用
+# ─────────────────────────────────────────────
+@onready var state_machine_node: StateMachine = $StateMachine if has_node("StateMachine") else null
+@onready var sprite: Sprite2D = $Sprite2D if has_node("Sprite2D") else null
+@onready var collision: CollisionShape2D = $CollisionShape2D if has_node("CollisionShape2D") else null
+@onready var detection_area: Area2D = $DetectionArea if has_node("DetectionArea") else null
+@onready var attack_area: Area2D = $AttackArea if has_node("AttackArea") else null
+
+# 常量
+const TILE_SIZE := 32
+const MP_REGEN_INTERVAL := 1.0
+
+var _mp_regen_timer: float = 0.0
 
 
 # ─────────────────────────────────────────────
@@ -85,42 +89,8 @@ var _last_velocity: Vector2 = Vector2.ZERO
 # ─────────────────────────────────────────────
 
 func _ready() -> void:
-	# 初始化 sprite：优先查找现有 Sprite2D，没有则动态创建
-	if has_node("Sprite2D"):
-		sprite = $Sprite2D
-	else:
-		# 动态创建一个 Sprite2D 覆盖在 AnimatedSprite2D 上
-		sprite = Sprite2D.new()
-		sprite.name = "Sprite2D"
-		sprite.z_index = 1
-		add_child(sprite)
-		# 如果有 AnimatedSprite2D，将其隐藏（用Sprite2D代替显示）
-		if has_node("AnimatedSprite2D"):
-			$AnimatedSprite2D.visible = false
-	
-	if state_machine_node:
-		print("[BaseCharacter] %s 状态机节点: %s" % [display_name, state_machine_node.name])
-	
-	# 应用像素小人精灵
-	_apply_character_sprite()
-	
-	# 创建武器精灵
-	_create_weapon_sprite()
-
-
-func _apply_character_sprite() -> void:
-	if sprite == null:
-		return
-	
-	if character_id.is_empty():
-		return
-	
-	var tex = PlaceholderSpriteGenerator.generate_for_character(character_id)
-	if tex:
-		sprite.texture = tex
-		# 16x24 像素，scale x2 显示更清晰
-		sprite.scale = Vector2(2.0, 2.0)
-		sprite.position = Vector2(0, -8)  # 上移半格，让脚在碰撞圆中心
+	_setup_weapon_sprite()
+	_setup_swing_arc()
 
 
 func setup_from_data(char_id: String, is_npc: bool = false) -> void:
@@ -135,10 +105,9 @@ func setup_from_data(char_id: String, is_npc: bool = false) -> void:
 	var faction_str = data.get("faction", "NEUTRAL")
 	faction = _parse_faction(faction_str)
 	
-	# NPC血量现在使用npc_hp_ratio = 1.0（不再削减）
 	var base_hp = float(data.get("hp", 100))
 	if is_npc:
-		max_hp = base_hp * data.get("npc_hp_ratio", 1.0)
+		max_hp = base_hp * data.get("npc_hp_ratio", 0.5)
 	else:
 		max_hp = base_hp
 	current_hp = max_hp
@@ -158,25 +127,98 @@ func setup_from_data(char_id: String, is_npc: bool = false) -> void:
 	if unique_id.is_empty():
 		unique_id = char_id + "_" + str(randi())
 	
-	# 更新精灵（此时character_id已设置）
-	_apply_character_sprite()
+	_update_weapon_sprite()
 	
-	# 更新名称标签（NameLabel 节点）
-	_update_name_label()
-	
-	print("[BaseCharacter] %s 初始化: HP=%.0f, 武器=%s" % [
-		display_name, max_hp, weapon_data.get("display_name", "无")
+	print("[BaseCharacter] %s 初始化完成: HP=%.0f, MP=%.0f, 武器=%s" % [
+		display_name, max_hp, max_mp, weapon_data.get("display_name", "无")
 	])
 
 
 # ─────────────────────────────────────────────
-# 每帧
+# 武器显示 (v1.0.2)
+# ─────────────────────────────────────────────
+
+func _setup_weapon_sprite() -> void:
+	_weapon_sprite = Sprite2D.new()
+	_weapon_sprite.name = "WeaponSprite"
+	_weapon_sprite.z_index = 1
+	add_child(_weapon_sprite)
+	_weapon_sprite.position = Vector2(12, 0)
+
+
+func _setup_swing_arc() -> void:
+	_swing_arc_node = Node2D.new()
+	_swing_arc_node.name = "SwingArc"
+	_swing_arc_node.z_index = 2
+	add_child(_swing_arc_node)
+
+
+func _update_weapon_sprite() -> void:
+	if _weapon_sprite == null:
+		return
+	
+	var weapon_id = weapon_data.get("id", "fist")
+	if weapon_id == "fist":
+		_weapon_sprite.visible = false
+		return
+	
+	_weapon_sprite.visible = true
+	# 生成简单的武器像素图标
+	var img = Image.create(8, 16, false, Image.FORMAT_RGBA8)
+	var wcolor: Color
+	match weapon_id:
+		"axe": wcolor = Color(0.6, 0.4, 0.2)
+		"cleaver": wcolor = Color(0.7, 0.7, 0.7)
+		"holy_staff": wcolor = Color(1.0, 0.9, 0.3)
+		"dagger": wcolor = Color(0.8, 0.8, 0.9)
+		"sword": wcolor = Color(0.75, 0.75, 0.8)
+		_: wcolor = Color(0.5, 0.5, 0.5)
+	
+	# 画武器形状
+	for y in range(16):
+		for x in range(8):
+			if y < 4:  # 刀刃/杖头
+				if x >= 2 and x <= 5:
+					img.set_pixel(x, y, wcolor.lightened(0.3))
+			elif y < 12:  # 刀身
+				if x >= 3 and x <= 4:
+					img.set_pixel(x, y, wcolor)
+			else:  # 手柄
+				if x >= 3 and x <= 4:
+					img.set_pixel(x, y, Color(0.4, 0.25, 0.1))
+	
+	_weapon_sprite.texture = ImageTexture.create_from_image(img)
+
+
+func _update_weapon_position() -> void:
+	if _weapon_sprite == null:
+		return
+	match facing_direction:
+		Direction.RIGHT:
+			_weapon_sprite.position = Vector2(12, 0)
+			_weapon_sprite.rotation_degrees = -30
+			_weapon_sprite.flip_h = false
+		Direction.LEFT:
+			_weapon_sprite.position = Vector2(-12, 0)
+			_weapon_sprite.rotation_degrees = 30
+			_weapon_sprite.flip_h = true
+		Direction.DOWN:
+			_weapon_sprite.position = Vector2(8, 8)
+			_weapon_sprite.rotation_degrees = -45
+		Direction.UP:
+			_weapon_sprite.position = Vector2(-8, -8)
+			_weapon_sprite.rotation_degrees = 135
+
+
+# ─────────────────────────────────────────────
+# 每帧更新
 # ─────────────────────────────────────────────
 
 func _process(delta: float) -> void:
 	if not is_alive:
 		return
 	_process_passive_skills(delta)
+	_update_weapon_position()
 
 
 func _process_passive_skills(delta: float) -> void:
@@ -191,7 +233,7 @@ func _process_passive_skills(delta: float) -> void:
 
 
 # ─────────────────────────────────────────────
-# 战斗
+# 战斗核心方法
 # ─────────────────────────────────────────────
 
 func attack(target: BaseCharacter) -> void:
@@ -199,9 +241,21 @@ func attack(target: BaseCharacter) -> void:
 		return
 	
 	var damage = _calculate_damage(target)
-	_consume_weapon_durability()
-	target.take_damage(damage, self)
-	EventBus.entity_attacked.emit(self, target, damage)
+	
+	# 判断是远程还是近战
+	var wtype = weapon_data.get("weapon_type", "melee")
+	if wtype == "ranged":
+		# 远程武器：发射射弹，伤害由射弹处理，不直接调用 take_damage
+		_fire_projectile(target)
+		_consume_weapon_durability()
+		# 远程攻击也发出事件（damage 仅用于日志，实际由射弹处理）
+		EventBus.entity_attacked.emit(self, target, damage)
+	else:
+		# 近战攻击：挥击特效 + 直接伤害
+		_play_swing_effect()
+		_consume_weapon_durability()
+		target.take_damage(damage, self)
+		EventBus.entity_attacked.emit(self, target, damage)
 
 
 func _calculate_damage(target: BaseCharacter) -> float:
@@ -215,32 +269,192 @@ func _calculate_damage(target: BaseCharacter) -> float:
 		total_damage += extra
 		
 		var special_target = weapon_data.get("special_target", null)
-		if special_target != null and target.character_id == special_target:
+		if special_target != null and target.character_id == "undead":
 			var multiplier = float(weapon_data.get("special_multiplier", 1.0))
 			total_damage *= multiplier
 	
 	return total_damage
 
 
-func take_damage(amount: float, attacker: BaseCharacter = null) -> void:
-	print("[BaseCharacter] %s 受到伤害: %.1f" % [display_name, amount])
-	
-	if is_alive:
-		current_hp = max(0.0, current_hp - amount)
-		EventBus.hp_changed.emit(self, current_hp, max_hp)
-		
-		if attacker:
-			_react_to_being_attacked(attacker)
-		
-		if attacker and is_alive:
-			_apply_knockback(attacker)
-			_enter_hit_stun()
-		
-		if current_hp <= 0.0:
-			die(attacker)
-	else:
-		_corpse_hit(attacker)
+# ─────────────────────────────────────────────
+# 挥击特效 (v1.0.2)
+# ─────────────────────────────────────────────
 
+func _play_swing_effect() -> void:
+	if _swing_arc_node == null:
+		return
+	
+	# 创建临时弧线精灵
+	var arc = _create_swing_arc_sprite()
+	_swing_arc_node.add_child(arc)
+	
+	# 根据面朝方向设置初始角度
+	var start_angle: float = 0.0
+	var end_angle: float = 0.0
+	var arc_pos: Vector2 = Vector2.ZERO
+	match facing_direction:
+		Direction.RIGHT:
+			start_angle = -60.0
+			end_angle = 60.0
+			arc_pos = Vector2(16, 0)
+		Direction.LEFT:
+			start_angle = 120.0
+			end_angle = 240.0
+			arc_pos = Vector2(-16, 0)
+		Direction.DOWN:
+			start_angle = 30.0
+			end_angle = 150.0
+			arc_pos = Vector2(0, 16)
+		Direction.UP:
+			start_angle = 210.0
+			end_angle = 330.0
+			arc_pos = Vector2(0, -16)
+	
+	arc.position = arc_pos
+	arc.rotation_degrees = start_angle
+	
+	# 动画：旋转弧线
+	var tween = create_tween()
+	tween.tween_property(arc, "rotation_degrees", end_angle, 0.15)
+	tween.tween_property(arc, "modulate:a", 0.0, 0.1)
+	tween.tween_callback(arc.queue_free)
+	
+	EventBus.swing_effect.emit(global_position, facing_direction)
+
+
+func _create_swing_arc_sprite() -> Sprite2D:
+	var arc_sprite = Sprite2D.new()
+	# 创建弧线图像
+	var img = Image.create(24, 6, false, Image.FORMAT_RGBA8)
+	for x in range(24):
+		for y in range(6):
+			var alpha = 1.0 - float(x) / 24.0
+			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, alpha * 0.8))
+	arc_sprite.texture = ImageTexture.create_from_image(img)
+	arc_sprite.z_index = 10
+	return arc_sprite
+
+
+# ─────────────────────────────────────────────
+# 射弹系统 (v1.0.2)
+# ─────────────────────────────────────────────
+
+func _fire_projectile(target: BaseCharacter) -> void:
+	var dir = (target.global_position - global_position).normalized()
+	EventBus.projectile_fired.emit(global_position, dir, weapon_data, self)
+
+
+# ─────────────────────────────────────────────
+# 接受伤害 (v1.0.2 增强)
+# ─────────────────────────────────────────────
+
+func take_damage(amount: float, attacker: BaseCharacter = null) -> void:
+	if not is_alive:
+		# 尸体被攻击 (v1.0.2)
+		if attacker:
+			_corpse_hit(attacker)
+		return
+	
+	current_hp = max(0.0, current_hp - amount)
+	EventBus.hp_changed.emit(self, current_hp, max_hp)
+	
+	# 击退和僵直 (v1.0.2)
+	if attacker:
+		_apply_knockback(attacker)
+		_react_to_being_attacked(attacker)
+	
+	if current_hp <= 0.0:
+		die(attacker)
+
+
+## 应用击退效果 (v1.0.2)
+func _apply_knockback(attacker: BaseCharacter) -> void:
+	var dir = (global_position - attacker.global_position).normalized()
+	var weapon_weight = float(attacker.weapon_data.get("weight", 1))
+	var force = KNOCKBACK_FORCE * (weapon_weight / 3.0)
+	
+	_knockback_velocity = dir * force
+	
+	# 将击退速度传递给 HitStunState
+	set_meta("knockback_velocity", _knockback_velocity)
+	
+	# 进入僵直状态
+	_enter_hit_stun()
+
+
+## 进入受击僵直 (v1.0.2)
+func _enter_hit_stun() -> void:
+	if state_machine_node and state_machine_node.states.has("HitStunState"):
+		_is_in_hit_stun = true
+		state_machine_node.transition_to("HitStunState")
+
+
+## 清除击退 (v1.0.2)
+func clear_knockback() -> void:
+	_knockback_velocity = Vector2.ZERO
+	_is_in_hit_stun = false
+
+
+# ─────────────────────────────────────────────
+# 尸体系统 (v1.0.2)
+# ─────────────────────────────────────────────
+
+func _corpse_hit(attacker: BaseCharacter) -> void:
+	_corpse_hit_count += 1
+	_play_corpse_hit_effect()
+	
+	if _corpse_hit_count >= 3:
+		_explode_corpse()
+
+
+func _play_corpse_hit_effect() -> void:
+	if has_node("AnimatedSprite2D"):
+		var anim: AnimatedSprite2D = get_node("AnimatedSprite2D")
+		anim.modulate = Color(1.0, 0.2, 0.2, 1.0)
+		var tween = create_tween()
+		tween.tween_property(anim, "modulate", Color(0.3, 0.3, 0.3, 0.6), 0.3)
+
+
+func _explode_corpse() -> void:
+	print("[BaseCharacter] %s 的尸体爆裂了！" % display_name)
+	EventBus.blood_splatter.emit(global_position)
+	_create_blood_splatter()
+	
+	if has_node("AnimatedSprite2D"):
+		get_node("AnimatedSprite2D").visible = false
+	
+	# 延迟移除
+	var timer = get_tree().create_timer(0.5)
+	await timer.timeout
+	queue_free()
+
+
+func _create_blood_splatter() -> void:
+	# 创建简单的红色粒子效果
+	for i in range(8):
+		var particle = Sprite2D.new()
+		var img = Image.create(4, 4, false, Image.FORMAT_RGBA8)
+		img.fill(Color(0.8, 0.1, 0.05, 0.9))
+		particle.texture = ImageTexture.create_from_image(img)
+		particle.global_position = global_position
+		particle.z_index = 5
+		get_parent().add_child(particle)
+		
+		var angle = randf() * TAU
+		var dist = randf_range(15.0, 40.0)
+		var target_pos = global_position + Vector2(cos(angle), sin(angle)) * dist
+		
+		var tween = particle.create_tween()
+		tween.set_parallel(true)
+		tween.tween_property(particle, "global_position", target_pos, 0.4)
+		tween.tween_property(particle, "modulate:a", 0.0, 0.6)
+		tween.set_parallel(false)
+		tween.tween_callback(particle.queue_free)
+
+
+# ─────────────────────────────────────────────
+# 治疗与魔力
+# ─────────────────────────────────────────────
 
 func heal(amount: float) -> void:
 	current_hp = min(max_hp, current_hp + amount)
@@ -252,18 +466,20 @@ func change_mp(amount: float) -> void:
 	EventBus.mp_changed.emit(self, current_mp, max_mp)
 
 
+# ─────────────────────────────────────────────
+# 死亡处理 (v1.0.2 增强)
+# ─────────────────────────────────────────────
+
 func die(killer: BaseCharacter = null) -> void:
 	is_alive = false
-	
-	if killer:
-		var death_dir = (global_position - killer.global_position).normalized()
-		if death_dir.length() < 0.1:
-			death_dir = Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized()
-		_death_knockback = death_dir * KNOCKBACK_FORCE * 1.5
-	else:
-		_death_knockback = Vector2.ZERO
-	
 	_corpse_hit_count = 0
+	
+	# 死亡击飞 (v1.0.2)
+	if killer:
+		var dir = (global_position - killer.global_position).normalized()
+		var weapon_weight = float(killer.weapon_data.get("weight", 1))
+		_death_knockback = dir * KNOCKBACK_FORCE * DEATH_KNOCKBACK_MULTIPLIER * (weapon_weight / 3.0)
+		velocity = _death_knockback
 	
 	if state_machine_node:
 		state_machine_node.transition_to("DeadState")
@@ -271,8 +487,13 @@ func die(killer: BaseCharacter = null) -> void:
 	EventBus.entity_died.emit(self, killer)
 	FactionSystem.clear_individual_relations(self)
 	
+	# 隐藏武器
+	if _weapon_sprite:
+		_weapon_sprite.visible = false
+	
 	print("[BaseCharacter] %s 死亡！击杀者: %s" % [
-		display_name, killer.display_name if killer and is_instance_valid(killer) else "未知"
+		display_name, 
+		killer.display_name if killer else "未知"
 	])
 
 
@@ -285,7 +506,6 @@ func get_pixel_speed() -> float:
 
 
 func update_facing(direction: Vector2) -> void:
-	var old_dir = facing_direction
 	if direction.x > 0.1:
 		facing_direction = Direction.RIGHT
 	elif direction.x < -0.1:
@@ -294,12 +514,6 @@ func update_facing(direction: Vector2) -> void:
 		facing_direction = Direction.DOWN
 	elif direction.y < -0.1:
 		facing_direction = Direction.UP
-	
-	if old_dir != facing_direction:
-		_update_weapon_position()
-		# 精灵翻转（左右方向）
-		if sprite:
-			sprite.flip_h = (facing_direction == Direction.LEFT)
 
 
 # ─────────────────────────────────────────────
@@ -310,15 +524,35 @@ func _equip_weapon(weapon_id: String) -> void:
 	weapon_data = DataManager.get_weapon(weapon_id)
 	if weapon_data.is_empty():
 		weapon_durability = -1.0
-		if weapon_sprite:
-			weapon_sprite.visible = false
 		return
 	
 	var dur = weapon_data.get("durability", -1)
 	weapon_durability = float(dur)
-	EventBus.weapon_durability_changed.emit(self, weapon_durability, float(dur))
+	EventBus.weapon_durability_changed.emit(self, weapon_durability, weapon_data.get("durability", -1))
+	_update_weapon_sprite()
+
+
+func switch_weapon(weapon_id: String) -> void:
+	_equip_weapon(weapon_id)
+	EventBus.weapon_switched.emit(self, weapon_data)
+	# 头顶浮动文字
+	_show_floating_text(weapon_data.get("display_name", "拳头"))
+
+
+func _show_floating_text(text: String) -> void:
+	var label = Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", 10)
+	label.add_theme_color_override("font_color", Color.WHITE)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.position = Vector2(-20, -40)
+	label.z_index = 20
+	add_child(label)
 	
-	_update_weapon_display()
+	var tween = create_tween()
+	tween.tween_property(label, "position:y", label.position.y - 20, 0.8)
+	tween.parallel().tween_property(label, "modulate:a", 0.0, 0.8)
+	tween.tween_callback(label.queue_free)
 
 
 func _consume_weapon_durability() -> void:
@@ -336,17 +570,77 @@ func _consume_weapon_durability() -> void:
 
 
 func _break_weapon() -> void:
-	print("[BaseCharacter] %s 的武器损坏！" % display_name)
+	print("[BaseCharacter] %s 的武器 %s 损坏了！" % [display_name, weapon_data.get("display_name", "武器")])
 	EventBus.weapon_broken.emit(self, weapon_data.get("id", ""))
 	weapon_data = DataManager.get_weapon("fist")
+	_update_weapon_sprite()
 
+
+# ─────────────────────────────────────────────
+# 背包管理 (v1.0.2)
+# ─────────────────────────────────────────────
+
+func add_to_inventory(item_data: Dictionary) -> bool:
+	if inventory.size() >= INVENTORY_SIZE:
+		return false
+	
+	# 特殊处理药水计数
+	var item_type = item_data.get("item_type", "")
+	if item_type == "health_potion":
+		health_potions += 1
+	elif item_type == "mana_potion":
+		mana_potions += 1
+	
+	inventory.append(item_data.duplicate(true))
+	EventBus.inventory_changed.emit()
+	return true
+
+
+func remove_from_inventory(index: int) -> Dictionary:
+	if index < 0 or index >= inventory.size():
+		return {}
+	var item = inventory[index]
+	inventory.remove_at(index)
+	EventBus.inventory_changed.emit()
+	return item
+
+
+func use_health_potion() -> bool:
+	for i in range(inventory.size()):
+		if inventory[i].get("item_type", "") == "health_potion":
+			var effect_val = float(inventory[i].get("effect_value", 30))
+			heal(effect_val)
+			health_potions -= 1
+			inventory.remove_at(i)
+			EventBus.inventory_changed.emit()
+			_show_floating_text("+%.0f HP" % effect_val)
+			return true
+	return false
+
+
+func use_mana_potion() -> bool:
+	for i in range(inventory.size()):
+		if inventory[i].get("item_type", "") == "mana_potion":
+			var effect_val = float(inventory[i].get("effect_value", 30))
+			change_mp(effect_val)
+			mana_potions -= 1
+			inventory.remove_at(i)
+			EventBus.inventory_changed.emit()
+			_show_floating_text("+%.0f MP" % effect_val)
+			return true
+	return false
+
+
+# ─────────────────────────────────────────────
+# 阵营关系响应
+# ─────────────────────────────────────────────
 
 func _react_to_being_attacked(attacker: BaseCharacter) -> void:
 	pass
 
 
 # ─────────────────────────────────────────────
-# 工具
+# 工具方法
 # ─────────────────────────────────────────────
 
 func _parse_faction(faction_str: String) -> int:
@@ -367,222 +661,3 @@ func get_hp_percent() -> float:
 
 func is_low_hp(threshold: float = 0.3) -> bool:
 	return get_hp_percent() < threshold
-
-
-## 更新头顶名称标签
-func _update_name_label() -> void:
-	if has_node("NameLabel"):
-		var lbl: Label = get_node("NameLabel")
-		lbl.text = display_name
-
-
-# ─────────────────────────────────────────────
-# 击退和僵直
-# ─────────────────────────────────────────────
-
-func _apply_knockback(attacker: BaseCharacter) -> void:
-	if not attacker:
-		return
-	
-	var knockback_dir = (global_position - attacker.global_position).normalized()
-	if knockback_dir.length() < 0.1:
-		knockback_dir = Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized()
-	
-	var knockback_strength = KNOCKBACK_FORCE
-	
-	# 武器重量影响击退力度
-	if attacker.weapon_data and attacker.weapon_data.has("weight"):
-		var weight = float(attacker.weapon_data.get("weight", 1))
-		knockback_strength *= (0.5 + weight * 0.2)  # weight 1→0.7x, 3→1.1x, 5→1.5x
-	
-	_knockback_velocity = knockback_dir * knockback_strength
-	
-	if state_machine_node:
-		set_meta("hit_knockback_direction", knockback_dir)
-		set_meta("hit_knockback_speed", knockback_strength)
-	
-	print("[BaseCharacter] %s 受击退，力度: %.1f" % [display_name, knockback_strength])
-
-
-func _enter_hit_stun() -> void:
-	if not state_machine_node:
-		return
-	
-	if state_machine_node.get_current_state_name() == "HitStunState":
-		return  # 已在僵直状态，不重复进入（避免无限循环）
-	
-	state_machine_node.transition_to("HitStunState")
-	_is_in_hit_stun = true
-
-
-func clear_knockback() -> void:
-	_knockback_velocity = Vector2.ZERO
-	_is_in_hit_stun = false
-
-
-## 碰撞弹回：击退速度撞墙时反弹
-func apply_bounce_on_collision() -> void:
-	if not is_alive:
-		return
-	
-	var slide_count = get_slide_collision_count()
-	if slide_count > 0 and _knockback_velocity.length() > 50.0:
-		var col = get_slide_collision(0)
-		if col:
-			# 反射速度
-			var normal = col.get_normal()
-			_knockback_velocity = _knockback_velocity.bounce(normal) * 0.6
-			if state_machine_node:
-				set_meta("hit_knockback_speed", _knockback_velocity.length())
-				set_meta("hit_knockback_direction", _knockback_velocity.normalized())
-
-
-# ─────────────────────────────────────────────
-# 尸体效果
-# ─────────────────────────────────────────────
-
-func _corpse_hit(attacker: BaseCharacter) -> void:
-	if is_alive:
-		return
-	
-	_corpse_hit_count += 1
-	_play_corpse_hit_effect()
-	
-	if attacker:
-		var corpse_dir = (global_position - attacker.global_position).normalized()
-		if corpse_dir.length() < 0.1:
-			corpse_dir = Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized()
-		_death_knockback = corpse_dir * KNOCKBACK_FORCE * 0.5
-	
-	if _corpse_hit_count >= 3:
-		_explode_corpse()
-
-
-func _play_corpse_hit_effect() -> void:
-	if sprite:
-		sprite.modulate = Color(1, 0.3, 0.3, 1)
-		var timer = get_tree().create_timer(0.1)
-		timer.timeout.connect(_restore_corpse_color)
-	EventBus.play_sound.emit("corpse_hit", global_position)
-
-
-func _restore_corpse_color() -> void:
-	if sprite:
-		sprite.modulate = Color(1, 1, 1, 1)
-
-
-func _explode_corpse() -> void:
-	print("[BaseCharacter] %s 的尸体爆裂！" % display_name)
-	_create_blood_splatter()
-	EventBus.play_sound.emit("corpse_explode", global_position)
-	if sprite:
-		sprite.visible = false
-	await get_tree().create_timer(0.5).timeout
-	queue_free()
-
-
-func _create_blood_splatter() -> void:
-	print("[BaseCharacter] 血液飞溅 at ", global_position)
-	EventBus.blood_splatter.emit(global_position)
-
-
-# ─────────────────────────────────────────────
-# 武器显示
-# ─────────────────────────────────────────────
-
-func _create_weapon_sprite() -> void:
-	if weapon_sprite and is_instance_valid(weapon_sprite):
-		remove_child(weapon_sprite)
-		weapon_sprite.queue_free()
-	
-	weapon_sprite = Sprite2D.new()
-	weapon_sprite.name = "WeaponSprite"
-	weapon_sprite.z_index = 2
-	weapon_sprite.visible = false
-	weapon_sprite.scale = Vector2(2.0, 2.0)  # 放大武器图标
-	add_child(weapon_sprite)
-
-
-func _update_weapon_display() -> void:
-	if not weapon_sprite:
-		return
-	
-	if weapon_data.is_empty():
-		weapon_sprite.visible = false
-		return
-	
-	# 使用生成的武器图标纹理
-	var weapon_id = weapon_data.get("id", "fist")
-	var tex = PlaceholderSpriteGenerator.generate_weapon_icon(weapon_id)
-	if tex:
-		weapon_sprite.texture = tex
-		weapon_sprite.visible = true
-	else:
-		weapon_sprite.visible = false
-	
-	_update_weapon_position()
-
-
-func _update_weapon_position() -> void:
-	if not weapon_sprite or not weapon_sprite.visible:
-		return
-	
-	var offset = Vector2.ZERO
-	match facing_direction:
-		Direction.RIGHT:
-			offset = Vector2(18, 0)
-			weapon_sprite.rotation_degrees = 0
-		Direction.LEFT:
-			offset = Vector2(-18, 0)
-			weapon_sprite.rotation_degrees = 180
-		Direction.DOWN:
-			offset = Vector2(0, 18)
-			weapon_sprite.rotation_degrees = 90
-		Direction.UP:
-			offset = Vector2(0, -18)
-			weapon_sprite.rotation_degrees = -90
-	
-	weapon_sprite.position = offset
-
-
-func play_weapon_swing() -> void:
-	if not weapon_sprite or not weapon_sprite.visible:
-		return
-	
-	var tween = create_tween()
-	tween.set_trans(Tween.TRANS_SINE)
-	tween.set_ease(Tween.EASE_OUT)
-	
-	var weight = float(weapon_data.get("weight", 1))
-	var swing_angle = 60.0 + weight * 10.0  # 重量越大摆动角越大
-	var swing_speed = max(0.08, 0.15 - weight * 0.01)
-	
-	var start_rot = weapon_sprite.rotation_degrees
-	var end_rot = start_rot + swing_angle
-	
-	tween.tween_property(weapon_sprite, "rotation_degrees", end_rot, swing_speed)
-	tween.tween_property(weapon_sprite, "rotation_degrees", start_rot, swing_speed)
-
-
-## 发射射弹（圣杖）
-func shoot_projectile(target_position: Vector2) -> void:
-	if weapon_data.is_empty():
-		return
-	
-	var weapon_type = weapon_data.get("type", weapon_data.get("weapon_type", "melee"))
-	if weapon_type != "ranged":
-		return
-	
-	var projectile_scene = load("res://scenes/Projectile.tscn")
-	if not projectile_scene:
-		print("[BaseCharacter] 无法加载射弹场景")
-		return
-	
-	var projectile = projectile_scene.instantiate()
-	get_parent().add_child(projectile)
-	projectile.global_position = global_position
-	
-	var direction = (target_position - global_position).normalized()
-	projectile.set_direction(direction, self, base_damage + magic_damage)
-	
-	print("[BaseCharacter] 发射射弹")

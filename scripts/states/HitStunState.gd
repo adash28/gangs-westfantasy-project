@@ -1,15 +1,17 @@
-## HitStunState.gd  v1.1
-## 受击僵直状态：变红、击退、碰撞弹回
+## HitStunState.gd
+## 受击僵直状态：角色被攻击后短暂僵直，变红，被击退
+## v1.0.2 新增
 
 extends BaseState
 class_name HitStunState
 
+## 僵直持续时间（秒）
 const HIT_STUN_DURATION := 0.3
-const KNOCKBACK_DECAY := 0.88
+## 击退衰减系数
+const KNOCKBACK_DECAY := 0.85
 
 var _stun_timer: float = 0.0
-var _knockback_direction: Vector2 = Vector2.ZERO
-var _knockback_speed: float = 0.0
+var _knockback_velocity: Vector2 = Vector2.ZERO
 
 
 func enter() -> void:
@@ -17,25 +19,24 @@ func enter() -> void:
 	if not entity:
 		return
 	
-	_stun_timer = HIT_STUN_DURATION
+	_stun_timer = 0.0
 	
-	if entity.has_meta("hit_knockback_direction") and entity.has_meta("hit_knockback_speed"):
-		_knockback_direction = entity.get_meta("hit_knockback_direction")
-		_knockback_speed = entity.get_meta("hit_knockback_speed")
-		entity.remove_meta("hit_knockback_direction")
-		entity.remove_meta("hit_knockback_speed")
+	# 从 meta 中读取击退速度（由 BaseCharacter.take_damage 设置）
+	if entity.has_meta("knockback_velocity"):
+		_knockback_velocity = entity.get_meta("knockback_velocity")
 	else:
-		_knockback_direction = Vector2.ZERO
-		_knockback_speed = 0.0
+		_knockback_velocity = Vector2.ZERO
 	
 	# 变红效果
-	var sp = entity.get("sprite")
-	if sp and is_instance_valid(sp):
-		sp.modulate = Color(1, 0.4, 0.4, 1)
-	elif entity.has_node("AnimatedSprite2D"):
-		entity.get_node("AnimatedSprite2D").modulate = Color(1, 0.4, 0.4, 1)
+	if entity.has_node("AnimatedSprite2D"):
+		var anim: AnimatedSprite2D = entity.get_node("AnimatedSprite2D")
+		anim.modulate = Color(1.0, 0.3, 0.3, 1.0)
 	
-	EventBus.play_sound.emit("hit", entity.global_position)
+	# 播放受击动画（如果有）
+	if entity.has_node("AnimatedSprite2D"):
+		var anim: AnimatedSprite2D = entity.get_node("AnimatedSprite2D")
+		if anim.sprite_frames and anim.sprite_frames.has_animation("hit"):
+			anim.play("hit")
 
 
 func exit() -> void:
@@ -43,23 +44,24 @@ func exit() -> void:
 	if not entity:
 		return
 	
-	# 恢复正常颜色
-	var sp = entity.get("sprite")
-	if sp and is_instance_valid(sp):
-		sp.modulate = Color(1, 1, 1, 1)
-	elif entity.has_node("AnimatedSprite2D"):
-		entity.get_node("AnimatedSprite2D").modulate = Color(1, 1, 1, 1)
+	# 恢复颜色
+	if entity.has_node("AnimatedSprite2D"):
+		var anim: AnimatedSprite2D = entity.get_node("AnimatedSprite2D")
+		anim.modulate = Color.WHITE
 	
-	_knockback_direction = Vector2.ZERO
-	_knockback_speed = 0.0
+	# 清除击退
+	_knockback_velocity = Vector2.ZERO
+	entity.velocity = Vector2.ZERO
 	
-	if entity.has_method("clear_knockback"):
-		entity.clear_knockback()
+	# 清除 meta
+	if entity.has_meta("knockback_velocity"):
+		entity.remove_meta("knockback_velocity")
 
 
 func update(delta: float) -> void:
-	_stun_timer -= delta
-	if _stun_timer <= 0:
+	_stun_timer += delta
+	if _stun_timer >= HIT_STUN_DURATION:
+		# 僵直结束，恢复到 Idle 状态
 		state_machine.transition_to("IdleState")
 
 
@@ -68,16 +70,11 @@ func physics_update(_delta: float) -> void:
 	if not entity:
 		return
 	
-	if _knockback_speed > 8.0:
-		entity.velocity = _knockback_direction * _knockback_speed
-		_knockback_speed *= KNOCKBACK_DECAY
-		
-		# 移动后检查碰撞弹回
-		if entity.has_method("apply_bounce_on_collision"):
-			entity.apply_bounce_on_collision()
-			# 获取弹回后的速度
-			if entity._knockback_velocity.length() > 8.0:
-				_knockback_direction = entity._knockback_velocity.normalized()
-				_knockback_speed = entity._knockback_velocity.length()
-	else:
+	# 应用击退速度并衰减
+	entity.velocity = _knockback_velocity
+	_knockback_velocity *= KNOCKBACK_DECAY
+	
+	# 速度太小就停止
+	if _knockback_velocity.length() < 5.0:
+		_knockback_velocity = Vector2.ZERO
 		entity.velocity = Vector2.ZERO

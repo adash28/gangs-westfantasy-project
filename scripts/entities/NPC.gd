@@ -1,13 +1,13 @@
-## NPC.gd  v1.1
-## NPC基类：A*寻路、房间限制巡逻、神父留在教堂
+## NPC.gd
+## NPC 基类 v1.0.2
+## 更新：减少怪物生成量、A*寻路基础、修复同盟关系
 
 extends BaseCharacter
 class_name NPC
 
 # ─────────────────────────────────────────────
-# AI 参数
+# AI 感知参数
 # ─────────────────────────────────────────────
-
 @export var detection_range: float = 160.0
 @export var attack_range: float = 48.0
 
@@ -17,26 +17,17 @@ var _attack_timer: float = 0.0
 var attack_target: BaseCharacter = null
 var follow_target: BaseCharacter = null
 
-## 巡逻
 var patrol_origin: Vector2 = Vector2.ZERO
 var patrol_target: Vector2 = Vector2.ZERO
 const PATROL_RADIUS := 80.0
 const PATROL_WAIT_TIME := 2.5
 var _patrol_wait_timer: float = 0.0
 
-## 绑定房间（神父绑定教堂，不死者绑定墓地等）
-var bound_room: Rect2i = Rect2i()
-var is_room_bound: bool = false  # 是否被限制在房间内
-
 var entities_in_detection: Array = []
 
-## A*路径（格坐标列表）
-var _current_path: Array = []
-var _path_update_timer: float = 0.0
-const PATH_UPDATE_INTERVAL := 0.5  # 每0.5秒重新寻路
-
-## MapGenerator引用（用于A*寻路）
-var _map_gen: MapGenerator = null
+## 建筑限制区域（如果非空，NPC只在该区域内活动）
+var confined_rect: Rect2 = Rect2()
+var is_confined: bool = false
 
 
 # ─────────────────────────────────────────────
@@ -44,36 +35,14 @@ var _map_gen: MapGenerator = null
 # ─────────────────────────────────────────────
 
 func _ready() -> void:
-	pass
+	super._ready()
 
 
-## 标准初始化
 func init_npc(char_id: String) -> void:
 	setup_from_data(char_id, true)
 	patrol_origin = global_position
 	patrol_target = _random_patrol_point()
-	_connect_signals()
-
-
-## 带房间绑定的初始化（由MapGenerator调用）
-func init_npc_with_room(char_id: String, room_rect: Rect2i) -> void:
-	setup_from_data(char_id, true)
-	patrol_origin = global_position
-	bound_room = room_rect
 	
-	# 神父和友好NPC被限制在房间内巡逻
-	var data = DataManager.get_character(char_id)
-	var faction_str = data.get("faction", "NEUTRAL")
-	if faction_str == "HUMAN" and char_id == "priest":
-		is_room_bound = true
-		patrol_target = _random_room_patrol_point()
-	else:
-		patrol_target = _random_patrol_point()
-	
-	_connect_signals()
-
-
-func _connect_signals() -> void:
 	if has_node("DetectionArea"):
 		$DetectionArea.body_entered.connect(_on_detection_body_entered)
 		$DetectionArea.body_exited.connect(_on_detection_body_exited)
@@ -82,12 +51,13 @@ func _connect_signals() -> void:
 	
 	if state_machine_node:
 		state_machine_node.init_state(state_machine_node.states.get("IdleState"))
-	
-	# 找地图生成器
-	await get_tree().process_frame
-	var map_gens = get_tree().get_nodes_in_group("map_generator")
-	if map_gens.size() > 0:
-		_map_gen = map_gens[0] as MapGenerator
+
+
+## 限制NPC在某个区域内活动
+func confine_to_area(rect: Rect2) -> void:
+	confined_rect = rect
+	is_confined = true
+	patrol_origin = rect.get_center()
 
 
 # ─────────────────────────────────────────────
@@ -100,7 +70,6 @@ func _process(delta: float) -> void:
 		return
 	if _attack_timer > 0:
 		_attack_timer -= delta
-	_path_update_timer += delta
 	_ai_tick(delta)
 
 
@@ -110,19 +79,27 @@ func _physics_process(_delta: float) -> void:
 		move_and_slide()
 		return
 	move_and_slide()
+	
+	# 限制在围栏内 (v1.0.2)
+	if is_confined and is_alive:
+		global_position.x = clamp(global_position.x, confined_rect.position.x, confined_rect.end.x)
+		global_position.y = clamp(global_position.y, confined_rect.position.y, confined_rect.end.y)
 
 
 # ─────────────────────────────────────────────
-# AI 决策
+# AI 决策核心
 # ─────────────────────────────────────────────
 
 func _ai_tick(_delta: float) -> void:
-	if not state_machine_node or not is_alive:
+	if not state_machine_node:
 		return
 	var sm = state_machine_node
 	
-	# 1. 攻击目标
-	if attack_target and attack_target.is_alive:
+	if not is_alive:
+		return
+	
+	# 1. Attack
+	if attack_target and is_instance_valid(attack_target) and attack_target.is_alive:
 		var dist = global_position.distance_to(attack_target.global_position)
 		if dist <= attack_range:
 			if sm.get_current_state_name() != "AttackState":
@@ -133,22 +110,26 @@ func _ai_tick(_delta: float) -> void:
 		else:
 			if sm.get_current_state_name() != "MoveState":
 				sm.transition_to("MoveState")
-			_move_toward_with_pathfinding(attack_target.global_position)
+			_move_toward(attack_target.global_position)
 		return
+	else:
+		# 清除无效目标
+		if attack_target and (not is_instance_valid(attack_target) or not attack_target.is_alive):
+			attack_target = null
 	
-	# 2. 跟随目标
-	if follow_target and follow_target.is_alive:
+	# 2. Follow
+	if follow_target and is_instance_valid(follow_target) and follow_target.is_alive:
 		var dist = global_position.distance_to(follow_target.global_position)
 		if dist > 96.0:
 			if sm.get_current_state_name() != "MoveState":
 				sm.transition_to("MoveState")
-			_move_toward_with_pathfinding(follow_target.global_position)
+			_move_toward(follow_target.global_position)
 		else:
 			if sm.get_current_state_name() == "MoveState":
 				sm.transition_to("IdleState")
 		return
 	
-	# 3. 巡逻
+	# 3. Patrol
 	_patrol_tick(_delta)
 
 
@@ -163,42 +144,14 @@ func _patrol_tick(delta: float) -> void:
 		_patrol_wait_timer += delta
 		if _patrol_wait_timer >= PATROL_WAIT_TIME:
 			_patrol_wait_timer = 0.0
-			patrol_target = _pick_next_patrol_point()
+			patrol_target = _random_patrol_point()
 	else:
 		if sm.get_current_state_name() != "MoveState":
 			sm.transition_to("MoveState")
-		_move_toward_simple(patrol_target)
+		_move_toward(patrol_target)
 
 
-func _pick_next_patrol_point() -> Vector2:
-	if is_room_bound and bound_room.size.x > 0:
-		return _random_room_patrol_point()
-	return _random_patrol_point()
-
-
-## A* 辅助移动（有地图时用寻路，没有时直接移动）
-func _move_toward_with_pathfinding(target_pos: Vector2) -> void:
-	if _map_gen == null or _path_update_timer < PATH_UPDATE_INTERVAL:
-		_move_toward_simple(target_pos)
-		return
-	
-	_path_update_timer = 0.0
-	
-	var from_tile = _map_gen.world_to_tile(global_position)
-	var to_tile = _map_gen.world_to_tile(target_pos)
-	
-	_current_path = _map_gen.find_path(from_tile, to_tile)
-	
-	if _current_path.size() > 1:
-		# 跟随路径第二个节点（第一个是当前位置）
-		var next_tile: Vector2i = _current_path[1]
-		var next_world = _map_gen.tile_to_world(next_tile)
-		_move_toward_simple(next_world)
-	else:
-		_move_toward_simple(target_pos)
-
-
-func _move_toward_simple(target_pos: Vector2) -> void:
+func _move_toward(target_pos: Vector2) -> void:
 	var dir = (target_pos - global_position).normalized()
 	velocity = dir * get_pixel_speed()
 	update_facing(dir)
@@ -207,21 +160,18 @@ func _move_toward_simple(target_pos: Vector2) -> void:
 func _random_patrol_point() -> Vector2:
 	var angle = randf() * TAU
 	var radius = randf() * PATROL_RADIUS
-	return patrol_origin + Vector2(cos(angle), sin(angle)) * radius
-
-
-func _random_room_patrol_point() -> Vector2:
-	if bound_room.size.x == 0:
-		return _random_patrol_point()
+	var point = patrol_origin + Vector2(cos(angle), sin(angle)) * radius
 	
-	# 在房间内部（去掉边框）随机一点
-	var rx = float(bound_room.position.x + 2) * 32 + randf() * float((bound_room.size.x - 4)) * 32
-	var ry = float(bound_room.position.y + 2) * 32 + randf() * float((bound_room.size.y - 4)) * 32
-	return Vector2(rx, ry)
+	# 如果限制了区域，clamp到区域内
+	if is_confined:
+		point.x = clamp(point.x, confined_rect.position.x + 16, confined_rect.end.x - 16)
+		point.y = clamp(point.y, confined_rect.position.y + 16, confined_rect.end.y - 16)
+	
+	return point
 
 
 # ─────────────────────────────────────────────
-# 感知
+# 感知区域回调
 # ─────────────────────────────────────────────
 
 func _on_detection_body_entered(body: Node) -> void:
@@ -234,8 +184,7 @@ func _on_detection_body_entered(body: Node) -> void:
 		FactionSystem.Relation.HOSTILE:
 			_set_attack_target(body)
 		FactionSystem.Relation.LOYAL, FactionSystem.Relation.ALLIED:
-			# 使用组检测代替直接类型检测，避免循环依赖
-			if body.is_in_group("player"):
+			if body is Player:
 				follow_target = body
 
 
@@ -272,16 +221,20 @@ func _set_attack_target(target: Node) -> void:
 		FactionSystem.set_individual_relation(self, target, FactionSystem.Relation.HOSTILE, true)
 
 
+# ─────────────────────────────────────────────
+# 被攻击响应
+# ─────────────────────────────────────────────
+
 func _react_to_being_attacked(attacker: BaseCharacter) -> void:
 	_set_attack_target(attacker)
 	EventBus.entity_attacked.emit(attacker, self, 0)
 
 
 # ─────────────────────────────────────────────
-# 交互
+# 交互接口
 # ─────────────────────────────────────────────
 
-func interact(player) -> void:
+func interact(player: Player) -> void:
 	var data = DataManager.get_character(character_id)
 	var interaction_type = data.get("interaction_type", "none")
 	
@@ -290,34 +243,40 @@ func interact(player) -> void:
 			_interact_hire(player, data)
 		"shop":
 			_interact_shop(player)
+		"none":
+			pass
 
 
-func _interact_hire(player, data: Dictionary) -> void:
+func _interact_hire(player: Player, data: Dictionary) -> void:
 	var cost = data.get("hire_cost", 20)
 	if GameStateManager.spend_gold(cost):
 		faction = FactionSystem.Faction.ALLY
 		follow_target = player
 		attack_target = null
-		is_room_bound = false  # 雇佣后可离开房间
+		is_confined = false  # 雇佣后解除区域限制
 		FactionSystem.set_individual_relation(self, player, FactionSystem.Relation.LOYAL)
 		EventBus.npc_hired.emit(self, player)
+		print("[NPC] %s 被雇佣！花费 %d 金币" % [display_name, cost])
 		EventBus.dialogue_triggered.emit(display_name, ["好的，我愿意为你效劳！", "（%s 加入了你的队伍）" % display_name])
 	else:
+		print("[NPC] 金币不足，无法雇佣 %s（需要 %d 金币）" % [display_name, cost])
 		EventBus.dialogue_triggered.emit(display_name, ["你的金币不够，我可是要价 %d 金币的！" % cost])
 
 
-func _interact_shop(_player) -> void:
+func _interact_shop(_player: Player) -> void:
 	GameStateManager.change_state(GameStateManager.GameState.SHOP)
 	EventBus.shop_opened.emit(self)
 
 
 # ─────────────────────────────────────────────
-# 死亡
+# 死亡处理
 # ─────────────────────────────────────────────
 
 func die(killer: BaseCharacter = null) -> void:
 	if EventBus.entity_attacked.is_connected(_on_entity_attacked_globally):
 		EventBus.entity_attacked.disconnect(_on_entity_attacked_globally)
 	super.die(killer)
-	await get_tree().create_timer(1.5).timeout
+	await get_tree().create_timer(3.0).timeout
+	if not is_inside_tree():
+		return
 	queue_free()

@@ -16,10 +16,10 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -300.0
-offset_top = -250.0
-offset_right = 300.0
-offset_bottom = 250.0
+offset_left = -350.0
+offset_top = -280.0
+offset_right = 350.0
+offset_bottom = 280.0
 
 [node name="VBox" type="VBoxContainer" parent="CharacterSelectUI/Panel"]
 anchors_preset = 15
@@ -33,19 +33,19 @@ offset_bottom = -20.0
 [node name="TitleLabel" type="Label" parent="CharacterSelectUI/Panel/VBox"]
 text = "选择你的角色"
 horizontal_alignment = 1
-theme_override_font_sizes/font_size = 28
+theme_override_font_sizes/font_size = 32
 
 [node name="CharList" type="HBoxContainer" parent="CharacterSelectUI/Panel/VBox"]
 alignment = 1
-custom_minimum_size = Vector2(0, 100)
+custom_minimum_size = Vector2(0, 120)
 
 [node name="PreviewBox" type="VBoxContainer" parent="CharacterSelectUI/Panel/VBox"]
-custom_minimum_size = Vector2(0, 120)
+custom_minimum_size = Vector2(0, 140)
 
 [node name="NameLabel" type="Label" parent="CharacterSelectUI/Panel/VBox/PreviewBox"]
 text = "点击角色查看详情"
 horizontal_alignment = 1
-theme_override_font_sizes/font_size = 20
+theme_override_font_sizes/font_size = 22
 
 [node name="DescLabel" type="Label" parent="CharacterSelectUI/Panel/VBox/PreviewBox"]
 text = ""
@@ -58,5 +58,5 @@ horizontal_alignment = 1
 
 [node name="ConfirmBtn" type="Button" parent="CharacterSelectUI/Panel/VBox"]
 text = "开始冒险！"
-custom_minimum_size = Vector2(0, 50)
-theme_override_font_sizes/font_size = 18
+custom_minimum_size = Vector2(0, 60)
+theme_override_font_sizes/font_size = 20

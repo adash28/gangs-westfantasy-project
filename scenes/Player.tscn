@@ -1,7 +1,7 @@
-; Player.tscn - 玩家场景
-; 包含：CollisionShape2D、AnimatedSprite2D、StateMachine、各检测区域
+; Player.tscn - 玩家场景 v1.0.2
+; 新增 HitStunState
 
-[gd_scene load_steps=8 format=3 uid="uid://player_scene"]
+[gd_scene load_steps=9 format=3 uid="uid://player_scene"]
 
 [ext_resource type="Script" path="res://scripts/entities/Player.gd" id="1_player"]
 [ext_resource type="Script" path="res://scripts/systems/StateMachine.gd" id="2_sm"]
@@ -9,9 +9,10 @@
 [ext_resource type="Script" path="res://scripts/states/MoveState.gd" id="4_move"]
 [ext_resource type="Script" path="res://scripts/states/AttackState.gd" id="5_atk"]
 [ext_resource type="Script" path="res://scripts/states/DeadState.gd" id="6_dead"]
+[ext_resource type="Script" path="res://scripts/states/HitStunState.gd" id="7_hitstun"]
 
 [sub_resource type="RectangleShape2D" id="body_shape"]
-size = Vector2(20, 20)
+size = Vector2(16, 20)
 
 [sub_resource type="CircleShape2D" id="interact_shape"]
 radius = 40.0
@@ -28,7 +29,7 @@ collision_mask = 6
 shape = SubResource("body_shape")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
-scale = Vector2(1.5, 1.5)
+scale = Vector2(2.0, 2.0)
 
 [node name="StateMachine" type="Node" parent="."]
 script = ExtResource("2_sm")
@@ -44,6 +45,9 @@ script = ExtResource("5_atk")
 
 [node name="DeadState" type="Node" parent="StateMachine"]
 script = ExtResource("6_dead")
+
+[node name="HitStunState" type="Node" parent="StateMachine"]
+script = ExtResource("7_hitstun")
 
 [node name="InteractArea" type="Area2D" parent="."]
 collision_layer = 0
@@ -61,9 +65,9 @@ shape = SubResource("attack_shape")
 
 [node name="NameLabel" type="Label" parent="."]
 offset_left = -30.0
-offset_top = -28.0
+offset_top = -32.0
 offset_right = 30.0
-offset_bottom = -12.0
+offset_bottom = -16.0
 horizontal_alignment = 1
 vertical_alignment = 1
 text = "玩家"

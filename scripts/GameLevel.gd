@@ -1,6 +1,6 @@
-## GameLevel.gd  v1.1
-## 关卡主控脚本
-## 新增：InventoryUI创建、MapGenerator加入组、玩家精灵更新
+## GameLevel.gd
+## GameLevel 场景的主控脚本 v1.0.2 fixed
+## 修复：NPC名称显示时序问题（等待init_npc完成）、射弹管理
 
 extends Node2D
 
@@ -16,40 +16,32 @@ const PLAYER_SCENE_PATH := "res://scenes/Player.tscn"
 const NPC_SCENE_PATH     := "res://scenes/NPC.tscn"
 
 var player_node: Player = null
-var inventory_ui_node: InventoryUI = null
-var door_controller: DoorController = null
+
+## 射弹容器 (v1.0.2)
+var _projectile_container: Node2D = null
 
 
 func _ready() -> void:
 	GameStateManager.change_state(GameStateManager.GameState.LOAD_LEVEL)
 	
-	# 注入占位 TileSet
+	# 创建射弹容器 (v1.0.2)
+	_projectile_container = Node2D.new()
+	_projectile_container.name = "ProjectileContainer"
+	$World.add_child(_projectile_container)
+	
+	# 监听射弹事件 (v1.0.2)
+	EventBus.projectile_fired.connect(_on_projectile_fired)
+	
 	if tilemap.tile_set == null:
-		tilemap.tile_set = _create_placeholder_tileset()
+		tilemap.tile_set = PlaceholderSpriteGenerator.create_placeholder_tileset()
 	
-	# 将 MapGenerator 加入组（NPC可通过组找到它进行A*寻路）
-	map_generator.add_to_group("map_generator")
-	
-	# 配置地图生成器
 	map_generator.tilemap = tilemap
 	map_generator.npc_parent = npc_container
 	map_generator.npc_scene_path = NPC_SCENE_PATH
 	
-	# 生成地图
 	var spawn_pos: Vector2 = map_generator.generate()
 	
-	# 创建背包UI节点（放在根节点下，持久化）
-	_create_inventory_ui()
-	
-	# 创建门控制器
-	_create_door_controller()
-	
-	# 生成玩家
 	_spawn_player(spawn_pos)
-	
-	# 将门控制器绑定玩家
-	if door_controller:
-		door_controller.set_player(player_node)
 	
 	if chapter1_manager:
 		chapter1_manager.player_node = player_node
@@ -58,20 +50,6 @@ func _ready() -> void:
 	GameStateManager.change_state(GameStateManager.GameState.PLAYING)
 	
 	print("[GameLevel] 关卡初始化完成，玩家出生于: ", spawn_pos)
-
-
-func _create_door_controller() -> void:
-	door_controller = DoorController.new()
-	door_controller.name = "DoorController"
-	add_child(door_controller)
-	door_controller.setup(map_generator, tilemap)
-
-
-func _create_inventory_ui() -> void:
-	inventory_ui_node = InventoryUI.new()
-	inventory_ui_node.name = "InventoryUI"
-	inventory_ui_node.add_to_group("inventory_ui")
-	add_child(inventory_ui_node)
 
 
 func _spawn_player(spawn_pos: Vector2) -> void:
@@ -85,131 +63,77 @@ func _spawn_player(spawn_pos: Vector2) -> void:
 	player_node.global_position = spawn_pos
 	player_node.add_to_group("player")
 	
-	# 摄像机跟随
+	# 摄像机跟随玩家
 	camera.reparent(player_node)
 	camera.position = Vector2.ZERO
+	camera.zoom = Vector2(2.5, 2.5)
 	
-	# 等待 _ready() 完成后再初始化精灵
+	# 等待 _ready 执行完毕，此时 setup_from_data 已经在 Player._ready 中调用
 	await get_tree().process_frame
 	
-	# 设置玩家精灵（在 setup_from_data 后 sprite 已经更新了，这里是保险）
-	if player_node.sprite:
-		var tex = PlaceholderSpriteGenerator.generate_for_character(GameStateManager.selected_character_id)
-		player_node.sprite.texture = tex
-		player_node.sprite.scale = Vector2(2.0, 2.0)
-		player_node.sprite.position = Vector2(0, -8)
+	var anim_sprite = player_node.get_node_or_null("AnimatedSprite2D") as AnimatedSprite2D
+	var char_id = GameStateManager.selected_character_id
+	if char_id.is_empty():
+		char_id = "villager"
+	PlaceholderSpriteGenerator.setup_sprite(anim_sprite, char_id)
 	
-	# 确保名称标签显示正确名称
-	if player_node.has_node("NameLabel"):
-		player_node.get_node("NameLabel").text = player_node.display_name
+	# 修复：名称标签显示玩家实际名称
+	var name_lbl = player_node.get_node_or_null("NameLabel") as Label
+	if name_lbl:
+		name_lbl.text = player_node.display_name
+		print("[GameLevel] 设置玩家名称标签: ", player_node.display_name)
 	
-	# 初始化 HUD
 	if hud and hud.has_method("init_for_player"):
 		hud.init_for_player(player_node)
 	
-	print("[GameLevel] 玩家生成完成: %s at %s" % [
-		GameStateManager.selected_character_id, str(spawn_pos)
+	print("[GameLevel] 玩家生成完成: %s (%s) at %s" % [
+		player_node.display_name, char_id, str(spawn_pos)
 	])
 
 
-## NPC 进入场景树时初始化精灵
+## NPC 生成后的精灵初始化
+## 修复：child_entered_tree 时 init_npc 还未调用，需等待多帧后再设置名称
 func _on_npc_container_child_entered_tree(npc_node: Node) -> void:
 	if not npc_node is NPC:
 		return
+	# 等待两帧：第一帧等 NPC._ready() + init_npc() 执行完，第二帧确保 display_name 已赋值
+	await get_tree().process_frame
 	await get_tree().process_frame
 	
-	# 设置NPC精灵（setup_from_data 已在 init_npc 中调用，这里是保险）
-	if npc_node.sprite:
-		var tex = PlaceholderSpriteGenerator.generate_for_character(npc_node.character_id)
-		if tex:
-			npc_node.sprite.texture = tex
-			npc_node.sprite.scale = Vector2(1.5, 1.5)
-			npc_node.sprite.position = Vector2(0, -6)
+	if not is_instance_valid(npc_node):
+		return
 	
-	# 确保名称标签显示正确名称
-	if npc_node.has_node("NameLabel"):
-		npc_node.get_node("NameLabel").text = npc_node.display_name
+	# 设置精灵动画
+	var anim_sprite = npc_node.get_node_or_null("AnimatedSprite2D") as AnimatedSprite2D
+	var char_id: String = npc_node.character_id
+	if char_id.is_empty():
+		char_id = "villager"
+	PlaceholderSpriteGenerator.setup_sprite(anim_sprite, char_id)
 	
-	# 设置 NPC 血条
+	# 修复：设置 NPC 名称标签
+	var name_lbl = npc_node.get_node_or_null("NameLabel") as Label
+	if name_lbl:
+		# 确保 display_name 不是默认的 "未知"
+		var display = npc_node.display_name
+		if display.is_empty() or display == "未知":
+			# 从数据中重新获取
+			var data = DataManager.get_character(npc_node.character_id)
+			display = data.get("display_name", npc_node.character_id)
+		name_lbl.text = display
+		name_lbl.visible = true
+		print("[GameLevel] 设置NPC名称标签: %s -> '%s'" % [npc_node.character_id, display])
+	
+	# 设置血条脚本
 	var hp_fill = npc_node.get_node_or_null("HPBarFill") as ColorRect
 	if hp_fill and not hp_fill.get_script():
 		var script = load("res://scripts/ui/NPCHealthBar.gd")
-		hp_fill.set_script(script)
+		if script:
+			hp_fill.set_script(script)
 
 
-## 创建占位 TileSet（12种类型格子，用颜色区分）
-func _create_placeholder_tileset() -> TileSet:
-	var ts = TileSet.new()
-	ts.tile_size = Vector2i(32, 32)
-	
-	var source = TileSetAtlasSource.new()
-	
-	# 创建一个 512x64 的颜色图集（每种格子32x32）
-	var tile_colors = [
-		Color(0.3, 0.5, 0.2),   # 0: FLOOR（草地，绿色）
-		Color(0.5, 0.4, 0.2),   # 1: ROAD（道路，棕黄）
-		Color(0.25, 0.22, 0.2), # 2: WALL（墙，深灰）
-		Color(0.15, 0.35, 0.1), # 3: TREE（树，深绿）
-		Color(0.4, 0.38, 0.36), # 4: STONE（石头，灰）
-		Color(0.1, 0.3, 0.7),   # 5: WATER（水，蓝）
-		Color(0.5, 0.35, 0.2),  # 6: OBSTACLE（障碍物，棕）
-		Color(0.4, 0.4, 0.4),   # 7: FENCE（围栏，灰白）
-		Color(0.6, 0.35, 0.1),  # 8: DOOR（门，木色）
-	]
-	
-	var img = Image.create(512, 64, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	
-	for i in range(tile_colors.size()):
-		var base_color = tile_colors[i]
-		var x_off = i * 32
-		
-		for py in range(32):
-			for px in range(32):
-				var variation = randf_range(-0.03, 0.03)
-				var c = Color(
-					clamp(base_color.r + variation, 0, 1),
-					clamp(base_color.g + variation, 0, 1),
-					clamp(base_color.b + variation, 0, 1)
-				)
-				# 边框效果
-				if px == 0 or px == 31 or py == 0 or py == 31:
-					c = c.darkened(0.2)
-				img.set_pixel(x_off + px, py, c)
-		
-		# 特殊格子额外装饰
-		match i:
-			3:  # 树：中央深色点
-				for py in range(8, 24):
-					for px in range(8, 24):
-						img.set_pixel(x_off + px, py, Color(0.1, 0.25, 0.05))
-			7:  # 围栏：交叉图案
-				for j in range(32):
-					img.set_pixel(x_off + j, j, Color(0.6, 0.6, 0.6))
-					img.set_pixel(x_off + j, 31 - j, Color(0.6, 0.6, 0.6))
-			8:  # 门：竖条纹
-				for py in range(32):
-					img.set_pixel(x_off + 10, py, Color(0.4, 0.25, 0.08))
-					img.set_pixel(x_off + 21, py, Color(0.4, 0.25, 0.08))
-	
-	var tex = ImageTexture.create_from_image(img)
-	source.texture = tex
-	source.texture_region_size = Vector2i(32, 32)
-	
-	for i in range(tile_colors.size()):
-		source.create_tile(Vector2i(i, 0))
-	
-	ts.add_source(source, 0)
-	
-	# 设置碰撞（WALL, TREE, STONE, OBSTACLE, FENCE, WATER 不可通过）
-	var solid_types = [2, 3, 4, 6, 7, 5]  # 对应atlas列
-	for col_idx in solid_types:
-		var tile_data = source.get_tile_data(Vector2i(col_idx, 0), 0)
-		if tile_data:
-			tile_data.set_collision_polygons_count(0, 1)
-			var polygon = PackedVector2Array([
-				Vector2(0, 0), Vector2(32, 0), Vector2(32, 32), Vector2(0, 32)
-			])
-			tile_data.set_collision_polygon_points(0, 0, polygon)
-	
-	return ts
+## 射弹生成 (v1.0.2)
+func _on_projectile_fired(from_pos: Vector2, direction: Vector2, weapon_data: Dictionary, shooter: BaseCharacter) -> void:
+	if not is_instance_valid(_projectile_container):
+		return
+	var proj = Projectile.create(from_pos, direction, weapon_data, shooter)
+	_projectile_container.add_child(proj)

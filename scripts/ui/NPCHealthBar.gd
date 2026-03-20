@@ -1,81 +1,65 @@
-## NPCHealthBar.gd  v1.2
-## 修复：await get_parent().ready; 白色前景（当前血量）+ 暗红色背景（总血量）
-## 安装在 NPC 节点下的 HPBarFill 子节点
+## NPCHealthBar.gd
+## v1.0.2 修复：血条按百分比正确显示红色填充，剩余用白色背景
+## 修复：移除 await owner.ready，改为直接初始化
 
 extends ColorRect
 
 const BAR_FULL_WIDTH := 32.0
-const BAR_HEIGHT := 4.0
-
-var _owner_npc = null
-var _background_bar: ColorRect = null
+var _owner_npc: NPC = null
+var _bg_rect: ColorRect = null
 
 
 func _ready() -> void:
-	# 等待父节点初始化完成
-	var parent = get_parent()
-	if parent and not parent.is_node_ready():
-		await parent.ready
-
-	_owner_npc = get_parent()
+	# 修复：不使用 await owner.ready，直接获取父节点
+	# HPBarFill 的父节点就是 NPC
+	_owner_npc = get_parent() as NPC
 	if _owner_npc == null:
+		# 尝试从 owner 获取
+		_owner_npc = owner as NPC
+	if _owner_npc == null:
+		push_warning("[NPCHealthBar] 无法找到 NPC 父节点")
 		return
-
-	# 设置本节点为前景（白色，当前血量）
-	size = Vector2(BAR_FULL_WIDTH, BAR_HEIGHT)
-	color = Color(1, 1, 1, 1.0)  # 白色前景
-	z_index = 2
-
-	# 创建背景血条（暗红色，始终满格）
-	_create_background_bar()
-
+	
+	# 确保背景条（HPBarBG）正确显示
+	_bg_rect = _owner_npc.get_node_or_null("HPBarBG") as ColorRect
+	if _bg_rect:
+		_bg_rect.color = Color(0.2, 0.05, 0.05, 0.8)  # 深红色背景（表示损失的血量）
+		_bg_rect.size.x = BAR_FULL_WIDTH
+	
+	# 初始化血条为满血状态（红色表示当前血量）
+	size.x = BAR_FULL_WIDTH
+	color = Color(0.85, 0.15, 0.15, 1.0)
+	
+	# 延迟一帧再连接事件，确保 NPC 的 HP 已经初始化
 	EventBus.hp_changed.connect(_on_hp_changed)
-
-	# 初始化显示
+	
+	# 进行初始更新
 	call_deferred("_initial_update")
 
 
 func _initial_update() -> void:
-	if _owner_npc and _owner_npc.has_method("get_hp_percent"):
-		var hp = _owner_npc.get("current_hp")
-		var mhp = _owner_npc.get("max_hp")
-		if hp != null and mhp != null:
-			_on_hp_changed(_owner_npc, float(hp), float(mhp))
+	if _owner_npc and _owner_npc.max_hp > 0:
+		_on_hp_changed(_owner_npc, _owner_npc.current_hp, _owner_npc.max_hp)
 
 
-func _create_background_bar() -> void:
-	_background_bar = ColorRect.new()
-	_background_bar.name = "HPBarBackground"
-	_background_bar.size = Vector2(BAR_FULL_WIDTH, BAR_HEIGHT)
-	_background_bar.color = Color(0.4, 0.05, 0.05, 0.9)  # 暗红色背景
-	_background_bar.position = position  # 与前景条对齐
-	_background_bar.z_index = 1
-
-	# 添加到同父节点
-	get_parent().add_child(_background_bar)
-
-	# 确保前景在背景上方
-	move_to_front()
-
-
-func _on_hp_changed(entity, new_hp: float, max_hp: float) -> void:
-	# 确保只更新自己的 NPC
+func _on_hp_changed(entity: Node, new_hp: float, max_hp: float) -> void:
 	if entity != _owner_npc:
 		return
-
-	var pct = clamp(new_hp / max_hp, 0.0, 1.0) if max_hp > 0 else 0.0
-
-	# 更新前景（白色部分，代表当前血量）
+	
+	var pct = new_hp / max_hp if max_hp > 0 else 0.0
+	pct = clamp(pct, 0.0, 1.0)
+	
+	# 红色填充部分按血量百分比缩放
 	size.x = BAR_FULL_WIDTH * pct
-
-	# 背景始终是满格暗红
-	if _background_bar:
-		_background_bar.size.x = BAR_FULL_WIDTH
-
-	# 血量低时变黄，极低时变橙
+	
+	# 根据血量调整颜色
 	if pct > 0.5:
-		color = Color(1, 1, 1, 1.0)      # 白色（血量充足）
+		color = Color(0.85, 0.15, 0.15, 1.0)  # 正常红色
 	elif pct > 0.25:
-		color = Color(1, 0.9, 0.1, 1.0)  # 黄色（血量一般）
+		color = Color(0.9, 0.5, 0.1, 1.0)     # 橙色（中等血量）
 	else:
-		color = Color(1, 0.4, 0.1, 1.0)  # 橙红色（血量危险）
+		color = Color(1.0, 0.1, 0.1, 1.0)     # 亮红（低血量警告）
+	
+	# 背景始终满宽（深色，表示已损失血量）
+	if _bg_rect:
+		_bg_rect.size.x = BAR_FULL_WIDTH

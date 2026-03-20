@@ -1,6 +1,7 @@
-## ShopUI.gd  v1.1
-## 修复：只有选择商人角色时才有折扣
-## 修复：购买的药水放入背包，而不是立即使用
+## ShopUI.gd
+## 商店界面 v1.0.2
+## 修复：打折只对拥有"老谋深算"技能的玩家生效
+## 修复：药水购买后放入背包，可通过H/B键使用
 
 extends CanvasLayer
 
@@ -17,6 +18,8 @@ const DISCOUNT_RATE := 0.7
 
 func _ready() -> void:
 	panel.visible = false
+	# 商店UI在暂停时仍需响应输入
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	
 	EventBus.shop_opened.connect(_on_shop_opened)
 	EventBus.shop_closed.connect(_on_shop_closed)
@@ -30,16 +33,15 @@ func _on_shop_opened(merchant: Node) -> void:
 	_merchant = merchant as NPC
 	panel.visible = true
 	
-	# ─── Bug修复：折扣只给选择了"商人"角色的玩家 ───
+	# v1.0.2 修复：检查玩家（而非商人）是否拥有老谋深算技能
 	_has_discount = false
-	var selected_char = GameStateManager.selected_character_id
-	if selected_char == "merchant":
-		# 玩家选择的是商人角色，享有老谋深算折扣
+	var player = _find_player()
+	if player and player.skills.has("shrewd_dealer"):
 		_has_discount = true
 	
 	var title = _merchant.display_name + " 的商店" if _merchant else "商店"
 	if _has_discount:
-		title += " (折扣 70%)"
+		title += " (你的老谋深算技能：7折优惠！)"
 	shop_title.text = title
 	
 	_populate_items()
@@ -58,15 +60,6 @@ func _populate_items() -> void:
 		
 		var row = HBoxContainer.new()
 		
-		# 物品颜色图标
-		var icon = ColorRect.new()
-		icon.custom_minimum_size = Vector2(16, 16)
-		icon.size = Vector2(16, 16)
-		match item_data.get("icon_color", ""):
-			"red":  icon.color = Color(0.9, 0.1, 0.1)
-			"blue": icon.color = Color(0.1, 0.2, 0.9)
-			_:      icon.color = Color(0.6, 0.6, 0.6)
-		
 		var name_lbl = Label.new()
 		name_lbl.text = item_data.get("display_name", item_id)
 		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -75,20 +68,18 @@ func _populate_items() -> void:
 		desc_lbl.text = item_data.get("description", "")
 		desc_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		desc_lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-		desc_lbl.add_theme_font_size_override("font_size", 11)
 		
 		var price_lbl = Label.new()
 		if _has_discount:
-			price_lbl.text = "%d金 (折)" % final_price
+			price_lbl.text = "%d金 (折扣)" % final_price
 			price_lbl.add_theme_color_override("font_color", Color.YELLOW)
 		else:
 			price_lbl.text = "%d金" % final_price
 		
 		var buy_btn = Button.new()
-		buy_btn.text = "购买→背包"
+		buy_btn.text = "购买"
 		buy_btn.pressed.connect(func(): _buy_item(item_id, item_data, final_price))
 		
-		row.add_child(icon)
 		row.add_child(name_lbl)
 		row.add_child(desc_lbl)
 		row.add_child(price_lbl)
@@ -101,20 +92,24 @@ func _buy_item(item_id: String, item_data: Dictionary, price: int) -> void:
 		EventBus.dialogue_triggered.emit("商店", ["金币不足，无法购买！"])
 		return
 	
-	# ─── 修复：购买的药水放入背包，而不是立即使用 ───
 	var player = _find_player()
-	if player and player.inventory_ui and player.inventory_ui._inventory:
-		var added = player.inventory_ui._inventory.add_item(item_data)
-		if added:
-			player.inventory_ui.refresh_display()
-			print("[ShopUI] 购买 %s 放入背包，花费 %d 金币" % [item_data.get("display_name", item_id), price])
+	if player:
+		# v1.0.2: 药水放入背包而非立即使用
+		var effect = item_data.get("effect", "")
+		if effect == "heal" or effect == "restore_mp":
+			if player.add_to_inventory(item_data):
+				print("[ShopUI] 购买 %s 放入背包" % item_data.get("display_name", item_id))
+				EventBus.dialogue_triggered.emit("商店", [
+					"已购买 %s，放入背包！" % item_data.get("display_name", "物品"),
+					"（血瓶按H使用，蓝瓶按B使用，或打开背包E点击使用）"
+				])
+			else:
+				# 背包满了，退还金币
+				GameStateManager.add_gold(price)
+				EventBus.dialogue_triggered.emit("商店", ["背包已满，无法购买！"])
+				return
 		else:
-			# 背包满：直接使用
 			_apply_item_effect(player, item_data)
-			print("[ShopUI] 背包满，直接使用 %s" % item_data.get("display_name", item_id))
-	elif player:
-		# 没有背包时直接使用
-		_apply_item_effect(player, item_data)
 	
 	EventBus.item_picked_up.emit(item_data)
 
@@ -122,6 +117,7 @@ func _buy_item(item_id: String, item_data: Dictionary, price: int) -> void:
 func _apply_item_effect(player: Player, item_data: Dictionary) -> void:
 	var effect = item_data.get("effect", "")
 	var value = float(item_data.get("effect_value", 0))
+	
 	match effect:
 		"heal":
 			player.heal(value)

@@ -1,19 +1,7 @@
 ## FactionSystem.gd
 ## 全局阵营与关系系统（单例）
 ## 管理游戏中所有阵营定义，以及实体间的关系判定
-##
-## 阵营枚举:
-##   HUMAN   - 人类（村民/商人/神父等）
-##   MONSTER - 魔物（哥布林/不死者等）
-##   PLAYER  - 玩家（动态，取决于选择角色）
-##   ALLY    - 同盟（被雇佣后变为此状态）
-##   NEUTRAL - 中立（不主动攻击）
-##
-## 关系枚举:
-##   LOYAL   - 忠诚：主动保护，受攻击立即转为仇恨
-##   ALLIED  - 同盟：受攻击时转为仇恨
-##   HOSTILE - 仇恨：主动攻击
-##   NEUTRAL - 中立：不主动攻击
+## v1.0.2 修复：移除枚举类型作为返回值标注（Godot 4.x autoload parse error 修复）
 
 extends Node
 
@@ -26,95 +14,91 @@ enum Faction {
 	PLAYER  = 0,
 	HUMAN   = 1,
 	MONSTER = 2,
-	ALLY    = 3,  # 被雇佣/加入玩家队伍后的特殊状态
+	ALLY    = 3,
 	NEUTRAL = 4
 }
 
-## 关系枚举（对应文档中的"角色与角色之间的关系"）
+## 关系枚举
 enum Relation {
-	LOYAL   = 0,  # 忠诚：跟随玩家，被攻击立刻反击并仇恨
-	ALLIED  = 1,  # 同盟：玩家受攻击时一起反击
-	HOSTILE = 2,  # 仇恨：AI 转为 Attack 状态
-	NEUTRAL = 3   # 中立：不主动攻击，受攻击才反击
+	LOYAL   = 0,
+	ALLIED  = 1,
+	HOSTILE = 2,
+	NEUTRAL = 3
 }
 
 # ─────────────────────────────────────────────
 # 默认阵营关系矩阵
-# faction_matrix[faction_a][faction_b] = Relation
-# 表示 faction_a 眼中对 faction_b 的默认关系
 # ─────────────────────────────────────────────
-var _default_matrix: Dictionary = {
-	Faction.PLAYER: {
-		Faction.PLAYER:  Relation.LOYAL,
-		Faction.HUMAN:   Relation.ALLIED,
-		Faction.MONSTER: Relation.HOSTILE,
-		Faction.ALLY:    Relation.LOYAL,
-		Faction.NEUTRAL: Relation.NEUTRAL
-	},
-	Faction.HUMAN: {
-		Faction.PLAYER:  Relation.ALLIED,
-		Faction.HUMAN:   Relation.ALLIED,
-		Faction.MONSTER: Relation.HOSTILE,
-		Faction.ALLY:    Relation.LOYAL,
-		Faction.NEUTRAL: Relation.NEUTRAL
-	},
-	Faction.MONSTER: {
-		Faction.PLAYER:  Relation.HOSTILE,
-		Faction.HUMAN:   Relation.HOSTILE,
-		Faction.MONSTER: Relation.ALLIED,
-		Faction.ALLY:    Relation.HOSTILE,
-		Faction.NEUTRAL: Relation.NEUTRAL
-	},
-	Faction.ALLY: {
-		Faction.PLAYER:  Relation.LOYAL,
-		Faction.HUMAN:   Relation.ALLIED,
-		Faction.MONSTER: Relation.HOSTILE,
-		Faction.ALLY:    Relation.LOYAL,
-		Faction.NEUTRAL: Relation.NEUTRAL
-	},
-	Faction.NEUTRAL: {
-		Faction.PLAYER:  Relation.NEUTRAL,
-		Faction.HUMAN:   Relation.NEUTRAL,
-		Faction.MONSTER: Relation.NEUTRAL,
-		Faction.ALLY:    Relation.NEUTRAL,
-		Faction.NEUTRAL: Relation.NEUTRAL
-	}
-}
+# 注意：在 _ready 中初始化，避免 autoload 启动时枚举尚未就绪的问题
+var _default_matrix: Dictionary = {}
 
-# 个体关系覆盖表：允许对特定实体设置不同于默认阵营关系的个体关系
-# 格式: { entity_a_id: { entity_b_id: Relation } }
+# 个体关系覆盖表
 var _individual_overrides: Dictionary = {}
+
+
+func _ready() -> void:
+	# 在 _ready 中初始化矩阵，确保枚举已经就绪
+	_default_matrix = {
+		Faction.PLAYER: {
+			Faction.PLAYER:  Relation.LOYAL,
+			Faction.HUMAN:   Relation.ALLIED,
+			Faction.MONSTER: Relation.HOSTILE,
+			Faction.ALLY:    Relation.LOYAL,
+			Faction.NEUTRAL: Relation.NEUTRAL
+		},
+		Faction.HUMAN: {
+			Faction.PLAYER:  Relation.ALLIED,
+			Faction.HUMAN:   Relation.ALLIED,
+			Faction.MONSTER: Relation.HOSTILE,
+			Faction.ALLY:    Relation.LOYAL,
+			Faction.NEUTRAL: Relation.NEUTRAL
+		},
+		Faction.MONSTER: {
+			Faction.PLAYER:  Relation.HOSTILE,
+			Faction.HUMAN:   Relation.HOSTILE,
+			Faction.MONSTER: Relation.ALLIED,
+			Faction.ALLY:    Relation.HOSTILE,
+			Faction.NEUTRAL: Relation.NEUTRAL
+		},
+		Faction.ALLY: {
+			Faction.PLAYER:  Relation.LOYAL,
+			Faction.HUMAN:   Relation.ALLIED,
+			Faction.MONSTER: Relation.HOSTILE,
+			Faction.ALLY:    Relation.LOYAL,
+			Faction.NEUTRAL: Relation.NEUTRAL
+		},
+		Faction.NEUTRAL: {
+			Faction.PLAYER:  Relation.NEUTRAL,
+			Faction.HUMAN:   Relation.NEUTRAL,
+			Faction.MONSTER: Relation.NEUTRAL,
+			Faction.ALLY:    Relation.NEUTRAL,
+			Faction.NEUTRAL: Relation.NEUTRAL
+		}
+	}
 
 
 # ─────────────────────────────────────────────
 # 核心查询方法
+# 注意：返回类型使用 int 而非 Relation，避免 Godot 4.x 中 autoload parse error
 # ─────────────────────────────────────────────
 
-## 获取 entity_a 对 entity_b 的关系
-## entity_a, entity_b 需要有 faction 属性和 unique_id 属性
-## 注意：返回 int（Relation 枚举值），GDScript 4.x 枚举不可作为函数返回类型
+## 获取 entity_a 对 entity_b 的关系（返回 int，对应 Relation 枚举值）
 func get_relation(entity_a: Node, entity_b: Node) -> int:
 	var id_a = entity_a.get("unique_id")
 	var id_b = entity_b.get("unique_id")
-
+	
 	# 先检查个体覆盖表
 	if id_a and id_b:
 		if _individual_overrides.has(id_a) and _individual_overrides[id_a].has(id_b):
 			return _individual_overrides[id_a][id_b]
-
+	
 	# 使用默认阵营矩阵
-	var faction_a = entity_a.get("faction")
-	if faction_a == null:
-		faction_a = Faction.NEUTRAL
-
-	var faction_b = entity_b.get("faction")
-	if faction_b == null:
-		faction_b = Faction.NEUTRAL
-
+	var faction_a: int = entity_a.get("faction", Faction.NEUTRAL)
+	var faction_b: int = entity_b.get("faction", Faction.NEUTRAL)
 	return get_faction_relation(faction_a, faction_b)
 
 
-## 获取两个阵营之间的默认关系
+## 获取两个阵营之间的默认关系（返回 int）
 func get_faction_relation(faction_a: int, faction_b: int) -> int:
 	if _default_matrix.has(faction_a) and _default_matrix[faction_a].has(faction_b):
 		return _default_matrix[faction_a][faction_b]
@@ -148,16 +132,16 @@ func set_individual_relation(entity_a: Node, entity_b: Node, relation: int, one_
 	if not id_a or not id_b:
 		push_warning("[FactionSystem] 实体缺少 unique_id，无法设置个体关系")
 		return
-
+	
 	if not _individual_overrides.has(id_a):
 		_individual_overrides[id_a] = {}
 	_individual_overrides[id_a][id_b] = relation
-
+	
 	if not one_way:
 		if not _individual_overrides.has(id_b):
 			_individual_overrides[id_b] = {}
 		_individual_overrides[id_b][id_a] = _mirror_relation(relation)
-
+	
 	EventBus.relation_changed.emit(entity_a, relation)
 
 
@@ -193,11 +177,11 @@ func get_relation_name(relation: int) -> String:
 # 内部工具
 # ─────────────────────────────────────────────
 
-## 关系的镜像（A对B的关系确定后B对A的合理对应关系）
+## 关系的镜像
 func _mirror_relation(relation: int) -> int:
 	match relation:
-		Relation.LOYAL:   return Relation.ALLIED   # 对方至少也是同盟
+		Relation.LOYAL:   return Relation.ALLIED
 		Relation.ALLIED:  return Relation.ALLIED
-		Relation.HOSTILE: return Relation.HOSTILE  # 仇恨是双向的
+		Relation.HOSTILE: return Relation.HOSTILE
 		Relation.NEUTRAL: return Relation.NEUTRAL
 	return Relation.NEUTRAL

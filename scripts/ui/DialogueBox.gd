@@ -36,6 +36,8 @@ var _displayed_chars: int = 0
 
 func _ready() -> void:
 	panel.visible = false
+	# 设置为始终处理（对话时 time_scale=0，需要不受影响）
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	# 订阅对话触发事件
 	EventBus.dialogue_triggered.connect(_on_dialogue_triggered)
 
@@ -73,8 +75,8 @@ func _process(delta: float) -> void:
 	if not _is_typing:
 		return
 	
-	# 使用真实时间（不受 Engine.time_scale 影响）
-	_type_timer += delta * Engine.time_scale if Engine.time_scale > 0 else delta
+	# 使用真实时间（PROCESS_MODE_ALWAYS 确保 time_scale=0 时仍然更新）
+	_type_timer += delta
 	var chars_to_show = int(_type_timer * TYPE_SPEED)
 	
 	if chars_to_show > _displayed_chars:
